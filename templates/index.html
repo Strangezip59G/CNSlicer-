@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anime-to-Desmos Agent</title>
+<style>
+:root{color-scheme:dark;--bg:#10131b;--panel:#1a2030;--muted:#a8b2c7;--accent:#76e0bd;--border:#313b50}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f4f6fb;font:15px/1.5 system-ui,Segoe UI,sans-serif}
+header{padding:22px 4vw;border-bottom:1px solid var(--border);background:#141925}h1{margin:0;font-size:clamp(22px,3vw,34px)}header p{margin:6px 0 0;color:var(--muted)}
+main{padding:22px 4vw;display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);gap:20px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px;min-width:0}
+h2{font-size:18px;margin:0 0 12px}label{display:block;margin:12px 0 5px;color:var(--muted)}
+input,select,button{font:inherit}input[type=file],input[type=number],select{width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;background:#101521;color:#fff}
+input[type=range]{width:100%;accent-color:var(--accent)}
+button{background:var(--accent);color:#0a1714;border:0;border-radius:8px;padding:10px 13px;font-weight:700;cursor:pointer;margin-top:12px}button:disabled{opacity:.5;cursor:wait}
+button.secondary{background:#2c3548;color:#fff;border:1px solid #45516a}
+#status{white-space:pre-wrap;color:var(--muted);margin-top:10px;font-size:13px}.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:9px;margin-top:12px}
+.frame{background:#0f1420;border:2px solid transparent;border-radius:9px;overflow:hidden;cursor:pointer;padding:4px;color:#fff;text-align:left}.frame.selected{border-color:var(--accent)}.frame img{width:100%;aspect-ratio:16/10;object-fit:contain;display:block}.frame small{display:block;color:var(--muted);padding:4px}
+#calculator{height:640px;min-height:420px;border-radius:10px;overflow:hidden;background:#fff}
+#outputPanel:fullscreen{width:100vw;height:100vh;overflow:auto;border-radius:0;margin:0;padding:16px}#outputPanel:fullscreen #calculator{height:calc(100vh - 190px);min-height:320px}#noKey{background:#332c20;padding:12px;border-radius:8px;margin-bottom:12px;color:#ffdfa0}
+#meta{color:var(--muted);font-size:13px;margin:8px 0}.toolbar{display:flex;gap:8px;flex-wrap:wrap}.toolbar button{margin-top:0}
+@media(max-width:900px){main{grid-template-columns:1fr}#calculator{height:520px}}
+</style>
+<script src="https://www.desmos.com/api/v1.12/calculator.js?apiKey={{ desmos_api_key|urlencode }}"></script>
+</head>
+<body>
+<header><h1>Anime-to-Desmos Agent</h1><p>Video â†’ sampled frames â†’ contour mapping â†’ mathematical expressions</p></header>
+<main>
+<section class="panel">
+<h2>1. Upload an anime clip</h2>
+<div id="noKey" {% if desmos_api_key %}hidden{% endif %}>No Desmos API key configured. Frame extraction and JSON export still work, but the embedded calculator needs a key. Set <code>DESMOS_API_KEY</code> and restart the app.</div>
+<form id="uploadForm">
+<label>Video file</label><input type="file" name="video" accept="video/*" required>
+<label>Clip duration (seconds, max 20)</label><input type="number" name="seconds" min="1" max="20" value="15">
+<label>Sampling rate (frames/second)</label><input type="number" name="fps" min="1" max="120" step="1" value="2">
+<button id="uploadBtn" type="submit">Upload & extract frames</button>
+</form>
+<div id="status">Ready. Try a clear 10â€“20 second clip first.</div>
+<div id="meta"></div>
+<div class="toolbar"><button class="secondary" id="downloadBtn" disabled>Download expressions JSON</button></div>
+<h2 style="margin-top:22px">2. Choose a frame or build an animation</h2>
+<div class="frames" id="frames"></div>
+<h2 style="margin-top:22px">3. Trace settings</h2>
+<label>Outline palette colors</label><input id="colors" type="number" min="2" max="32" value="12">
+<label>Minimum region size (higher removes small details)</label><input id="threshold" type="number" min="0.0001" max="0.05" step="0.0001" value="0.0002">
+<label>Image smoothing <span id="smoothValue">2</span> (higher reduces texture)</label><input id="smoothing" type="range" min="0" max="10" value="2">
+<label>Outline smoothness <span id="curveValue">6</span> (higher softens angular edges; may blur small features)</label><input id="curveSmoothing" type="range" min="0" max="10" value="6">
+<label><input id="fillRegions" type="checkbox" checked> Fill with triangle mesh</label>
+<label>Triangle size <span id="triangleValue">18</span> px (smaller = finer detail, slower graph)</label><input id="triangleSize" type="range" min="8" max="32" step="2" value="18">
+<label>Maximum line segments</label><input id="segments" type="number" min="100" max="2000" step="100" value="800">
+<p style="color:var(--muted);font-size:13px">For color tracing, start with 18 px triangles and about 800 outline segments. For animation, use 1 to 2 upload frames per second and 300 to 400 line segments per frame for smoother playback.</p>
+<button id="traceBtn" disabled>Trace selected frame (color)</button>
+<label>Line-art animation detail (segments per frame)</label><input id="animationSegments" type="number" min="100" max="1200" step="50" value="400">
+<button id="animationBtn" disabled>Build black line animation</button>
+<p style="color:var(--muted);font-size:13px">This mode processes sampled frames in Python and plays them in Desmos as monochrome outlines. Lower the upload frame rate or segments per frame for faster playback.</p>
+<div id="animationControls" hidden>
+  <label>Animation frame (Desmos f slider)</label>
+  <input id="animationSlider" type="range" min="0" max="0" value="0">
+  <div class="toolbar"><button class="secondary" id="playAnimationBtn" type="button">Play</button><span id="animationTime" style="align-self:center;color:var(--muted)"></span></div>
+</div>
+</section>
+<section class="panel" id="outputPanel">
+<h2>Desmos output</h2>
+<div id="resultInfo" style="color:var(--muted);margin-bottom:10px">Select a frame and trace it to generate expressions.</div>
+<div id="calculator"></div>
+<div class="toolbar" style="margin-top:12px">
+<button class="secondary" id="fullscreenBtn" type="button">Full screen</button>
+<button class="secondary" id="clearBtn">Clear graph</button>
+<button class="secondary" id="homeBtn">Reset view</button>
+</div>
+</section>
+</main>
+<script>
+let jobId=null, selectedFrame=null, generated=null, calculator=null;
+let uploadedFrames=[], animationFrames=[], animationTimer=null, sourceSampleFps=2, frameHelper=null;
+const $=id=>document.getElementById(id);
+$('smoothing').addEventListener('input',()=>{$('smoothValue').textContent=$('smoothing').value});
+$("curveSmoothing").addEventListener("input",()=>{$("curveValue").textContent=$("curveSmoothing").value});
+if (window.Desmos && "{{ desmos_api_key|e }}") {
+  calculator=Desmos.GraphingCalculator($("calculator"), {
+    expressions:true, settingsMenu:true, zoomButtons:true, expressionsTopbar:true,
+    lockViewport:false, images:false, folders:false, notes:false, sliders:true
+  });
+  calculator.setMathBounds({left:-6,right:6,bottom:-8,top:8});
+} else {
+  $("calculator").innerHTML='<div style="padding:20px;color:#333">Embedded Desmos is unavailable until a valid API key is configured. You can still export the expression JSON.</div>';
+}
+function status(s){$("status").textContent=s}
+function drawDesmosExpressions(states,bounds){
+ if(!calculator)return;
+ const keep=new Set(states.map(e=>e.id));
+ const remove=calculator.getExpressions().filter(e=>/^(seg_|tri_|fill_|ink_|anim_)/.test(e.id)&&!keep.has(e.id)).map(e=>({id:e.id}));
+ if(remove.length)calculator.removeExpressions(remove);
+ calculator.setExpressions(states); calculator.setMathBounds(bounds);
+}
+function removeAnimationSlider(){
+ if(frameHelper){frameHelper.unobserve("numericValue.lineAnimation");frameHelper=null;}
+ if(calculator){
+  if(calculator.getExpressions().some(e=>e.id==="animation_f"))calculator.removeExpression({id:"animation_f"});
+  const old=calculator.getExpressions().filter(e=>/^anim_/.test(e.id)).map(e=>({id:e.id}));
+  if(old.length)calculator.removeExpressions(old);
+ }
+}
+function installAnimationSlider(){
+ if(!calculator||!animationFrames.length)return;
+ removeAnimationSlider();
+ const old=calculator.getExpressions().filter(e=>/^(seg_|tri_|fill_|ink_|anim_)/.test(e.id)).map(e=>({id:e.id}));
+ if(old.length)calculator.removeExpressions(old);
+ const prepared=[];
+ animationFrames.forEach((frame,index)=>{
+  frame.expressions.forEach((e,j)=>prepared.push({
+   id:`anim_${index}_${j}`,latex:`${e.latex}\\{round(f)=${index}\\}`,color:e.color,
+   lineWidth:e.lineWidth,hidden:false
+  }));
+ });
+ prepared.push({id:"animation_f",latex:"f=0",sliderBounds:{min:"0",max:String(animationFrames.length-1),step:"0.1"},playing:false});
+ calculator.setExpressions(prepared);
+ calculator.setMathBounds(animationFrames[0].graph_bounds);
+ frameHelper=calculator.HelperExpression({latex:"f"});
+ frameHelper.observe("numericValue.lineAnimation",()=>{
+  const value=frameHelper.numericValue;
+  if(Number.isFinite(value))showAnimationFrame(Math.round(value),false);
+ });
+}
+$("uploadForm").addEventListener("submit",async e=>{
+ e.preventDefault(); $("uploadBtn").disabled=true; status("Uploading and extracting framesâ€¦"); $("frames").innerHTML="";
+ try{
+  const fd=new FormData(e.target); const r=await fetch("/api/upload",{method:"POST",body:fd}); const data=await r.json();
+  if(!r.ok) throw new Error(data.error||"Upload failed");
+  jobId=data.job_id; selectedFrame=null; generated=null; uploadedFrames=data.frames; sourceSampleFps=data.sample_fps||2;
+  stopAnimation(); removeAnimationSlider(); animationFrames=[]; $("animationControls").hidden=true;
+  $("traceBtn").disabled=true; $("animationBtn").disabled=uploadedFrames.length<2; $("downloadBtn").disabled=true;
+  $("meta").textContent=`Video duration: ${data.duration_seconds}s Â· Processed: ${data.processed_seconds}s Â· Samples: ${data.frames.length} Â· ${data.sample_fps} FPS`;
+  const wrap=$("frames");
+  data.frames.forEach((f,i)=>{
+   const b=document.createElement("button"); b.className="frame"; b.type="button";
+   b.innerHTML=`<img src="${f.url}" loading="lazy"><small>${f.time.toFixed(2)} sec</small>`;
+   b.addEventListener("click",()=>{stopAnimation();removeAnimationSlider();animationFrames=[];$("animationControls").hidden=true;document.querySelectorAll(".frame").forEach(x=>x.classList.remove("selected"));b.classList.add("selected");selectedFrame=f.name;$("traceBtn").disabled=false;status("Selected frame at "+f.time+" seconds.");});
+   wrap.appendChild(b);
+  });
+  status(data.notice||"Frames extracted. Select one to trace.");
+ }catch(err){status(err.message)}finally{$("uploadBtn").disabled=false}
+});
+$("traceBtn").addEventListener("click",async()=>{
+ if(!jobId||!selectedFrame)return;
+ stopAnimation(); removeAnimationSlider(); animationFrames=[]; $("animationControls").hidden=true;
+ $("traceBtn").disabled=true; status("Smoothing, grouping colors, and tracing simplified contoursâ€¦");
+ try{
+  const r=await fetch("/api/trace",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+   job_id:jobId,frame:selectedFrame,colors:+$("colors").value,threshold:+$("threshold").value,
+   max_segments:+$("segments").value,smoothing:+$("smoothing").value,curve_smoothing:+$("curveSmoothing").value,fill_regions:$("fillRegions").checked,triangle_size:+$("triangleSize").value,width:640
+  })});
+  const data=await r.json(); if(!r.ok)throw new Error(data.error||"Tracing failed");
+  generated=data; $("downloadBtn").disabled=false;
+  $("resultInfo").textContent=`Generated ${data.fill_count} filled regions and ${data.line_count} curved outlines from a ${data.image_width}Ã—${data.image_height} frame.`;
+  drawDesmosExpressions(data.expressions.map(e=>({id:e.id,latex:e.latex,color:e.color,lineWidth:e.lineWidth,fill:e.fill,fillOpacity:e.fillOpacity,lineOpacity:e.lineOpacity,hidden:false})),data.graph_bounds);
+  status("Done. The full frame is covered by a small-triangle color mesh with smooth outlines on top. Smaller triangles add detail but can slow Desmos.");
+ }catch(err){status(err.message)}finally{$("traceBtn").disabled=false}
+});
+
+function stopAnimation(){if(animationTimer){animationTimer=null;if(calculator)calculator.setExpression({id:"animation_f",playing:false});}$("playAnimationBtn").textContent="Play";}
+function showAnimationFrame(index,updateF=true){
+ if(!animationFrames.length)return;
+ const i=Math.max(0,Math.min(animationFrames.length-1,index));
+ $("animationSlider").value=i; $("animationTime").textContent=`${animationFrames[i].time.toFixed(2)} sec - frame ${i+1}/${animationFrames.length} (f=${i})`;
+ if(updateF&&calculator)calculator.setExpression({id:"animation_f",latex:`f=${i}`,sliderBounds:{min:"0",max:String(animationFrames.length-1),step:"0.1"},playing:false});
+ $("resultInfo").textContent=`Line-art animation - ${animationFrames[i].line_count} strokes - ${animationFrames[i].image_width}x${animationFrames[i].image_height}`;
+}
+$("animationBtn").addEventListener("click",async()=>{
+ if(!jobId||uploadedFrames.length<2)return;
+ stopAnimation(); removeAnimationSlider(); animationFrames=[]; $("animationBtn").disabled=true; $("traceBtn").disabled=true;
+ $("animationControls").hidden=true;
+ try{
+  for(let i=0;i<uploadedFrames.length;i++){
+   status(`Python is tracing line-art frame ${i+1}/${uploadedFrames.length}...`);
+   const r=await fetch("/api/animate/trace",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({job_id:jobId,frame:uploadedFrames[i].name,max_segments:+$("animationSegments").value,
+     smoothing:+$("smoothing").value,curve_smoothing:+$("curveSmoothing").value})});
+   const data=await r.json(); if(!r.ok)throw new Error(data.error||`Could not trace frame ${i+1}`);
+   animationFrames.push({...data,time:uploadedFrames[i].time});
+  }
+  generated=null; $("animationControls").hidden=false; $("animationSlider").max=animationFrames.length-1;
+  installAnimationSlider(); showAnimationFrame(0); $("downloadBtn").disabled=false;
+  status(`Ready: all ${animationFrames.length} traced frames are loaded. Press Play; f now controls the pre-calculated outlines.`);
+ }catch(err){status(err.message);animationFrames=[]}
+ finally{$("animationBtn").disabled=uploadedFrames.length<2;$("traceBtn").disabled=!selectedFrame}
+});
+$("animationSlider").addEventListener("input",()=>{stopAnimation();showAnimationFrame(+$("animationSlider").value)});
+$("playAnimationBtn").addEventListener("click",()=>{
+ if(!animationFrames.length||!calculator)return;
+ const playing=!!animationTimer;
+ if(playing){stopAnimation();calculator.setExpression({id:"animation_f",playing:false});return;}
+ $("playAnimationBtn").textContent="Pause";
+ animationTimer=true;
+ calculator.setExpression({id:"animation_f",playing:true});
+
+});
+$("downloadBtn").addEventListener("click",()=>{
+ if(animationFrames.length){
+  const blob=new Blob([JSON.stringify({mode:"monochrome_line_art_animation",sample_fps:sourceSampleFps,frames:animationFrames},null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="desmos_line_animation.json";a.click();URL.revokeObjectURL(a.href);
+ }else if(jobId)location.href="/api/download/"+jobId;
+});
+$("clearBtn").addEventListener("click",()=>{stopAnimation();removeAnimationSlider();animationFrames=[];if(calculator){const old=calculator.getExpressions().filter(e=>/^(seg_|tri_|fill_|ink_|anim_)/.test(e.id)).map(e=>({id:e.id}));if(old.length)calculator.removeExpressions(old);}$("resultInfo").textContent="Graph cleared."});
+$("homeBtn").addEventListener("click",()=>{if(calculator)calculator.setMathBounds({left:-6,right:6,bottom:-8,top:8})});
+$("fullscreenBtn").addEventListener("click",async()=>{
+ const panel=$("outputPanel");
+ try{
+  if(document.fullscreenElement===panel)await document.exitFullscreen();
+  else if(panel.requestFullscreen)await panel.requestFullscreen();
+  else status("Full screen is not available in this browser.");
+ }catch(err){status("Could not enter full screen: "+err.message)}
+});
+document.addEventListener("fullscreenchange",()=>{
+ $("fullscreenBtn").textContent=document.fullscreenElement===$("outputPanel")?"Exit full screen":"Full screen";
+ if(calculator)setTimeout(()=>calculator.resize(),100);
+});
+</script>
+</body>
+</html>
+
