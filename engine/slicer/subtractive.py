@@ -44,12 +44,17 @@ class SubtractiveSlicer:
         self,
         mesh: trimesh.Trimesh,
         z_bottom: float | None = None,
-        custom_stepdown: float | None = None
+        custom_stepdown: float | None = None,
+        clearing_pattern: str = "concentric",
+        stock_to_leave_mm: float = 0.0,
+        tabs_count: int = 0,
+        tab_width_mm: float = 5.0,
+        tab_height_mm: float = 2.0
     ) -> SlicingResult:
-        """Subtractive slice of a 3D mesh inside the stock block (e.g.
+        """Subtractive slice of a 3D mesh inside the stock block (e.g. stepped pyramid, relief).
 
-        stepped pyramid, relief).
         Calculates Material to Remove = Stock(Z) - Mesh(Z) at each layer pass.
+        Supports both concentric and zigzag clearing, roughing stock allowance, and holding tabs.
         """
         stepdown = custom_stepdown or self.tool.stepdown_mm
         top_z = self.stock.top_z
@@ -84,7 +89,6 @@ class SubtractiveSlicer:
             slice_section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
 
             if slice_section is not None:
-                # Convert 3D planar slice into 2D Shapely polygon
                 slice_2d, _ = slice_section.to_2D()
                 part_polys = []
                 for entity in slice_2d.entities:
@@ -98,19 +102,31 @@ class SubtractiveSlicer:
             else:
                 part_union = sg.Polygon()
 
-            # 2. Material to Remove = Stock(Z) - Part(Z)
+            # 2. Material to Remove = Stock(Z) - Part(Z) (with stock_to_leave allowance)
             if not part_union.is_empty:
-                removal_area = stock_poly.difference(part_union)
+                if stock_to_leave_mm > 0:
+                    buffered_part = part_union.buffer(stock_to_leave_mm)
+                    removal_area = stock_poly.difference(buffered_part)
+                else:
+                    removal_area = stock_poly.difference(part_union)
             else:
                 removal_area = stock_poly
 
-            # 3. Generate pocket clearing passes inside removal_area
-            clearing_segments = self._generate_pocket_clearing(removal_area, z)
+            # 3. Generate pocket clearing passes (Concentric or Zigzag)
+            if clearing_pattern == "zigzag":
+                clearing_segments = self._generate_zigzag_clearing(removal_area, z)
+            else:
+                clearing_segments = self._generate_pocket_clearing(removal_area, z)
             layer.segments.extend(clearing_segments)
 
             # 4. Generate profile finishing pass around the Part perimeter
             if not part_union.is_empty:
-                profile_segments = self._generate_profile_contour(part_union, z, offset_outside=True)
+                is_bottom_pass = (idx == len(depths) - 1)
+                profile_segments = self._generate_profile_contour(
+                    part_union, z, offset_outside=True,
+                    tabs_count=tabs_count if is_bottom_pass else 0,
+                    tab_width_mm=tab_width_mm, tab_height_mm=tab_height_mm
+                )
                 layer.segments.extend(profile_segments)
 
             result.layers.append(layer)
@@ -217,13 +233,75 @@ class SubtractiveSlicer:
 
         return segments
 
+    def _generate_zigzag_clearing(
+        self,
+        region: sg.Polygon | sg.MultiPolygon,
+        nominal_z: float
+    ) -> list[ToolpathSegment]:
+        """Generate parallel raster (zigzag) infill passes to clear material."""
+        segments = []
+        tool_r = self.tool.radius_mm
+        stepover = self.tool.stepover_mm
+
+        # Inward offset so tool boundary remains strictly inside the removal region
+        active_area = region.buffer(-tool_r)
+        if active_area.is_empty:
+            return segments
+
+        bounds = active_area.bounds  # (minx, miny, maxx, maxy)
+        y_min, y_max = bounds[1], bounds[3]
+        x_min, x_max = bounds[0] - 10.0, bounds[2] + 10.0
+
+        y_coords = np.arange(y_min + stepover * 0.5, y_max, stepover)
+        if len(y_coords) == 0:
+            return segments
+
+        direction = 1  # 1 = left to right, -1 = right to left
+
+        for y in y_coords:
+            scan_line = sg.LineString([(x_min, y), (x_max, y)])
+            inter = scan_line.intersection(active_area)
+
+            if inter.is_empty:
+                continue
+
+            lines = [inter] if isinstance(inter, sg.LineString) else [g for g in getattr(inter, 'geoms', []) if isinstance(g, sg.LineString)]
+
+            for line in lines:
+                coords = list(line.coords)
+                if len(coords) < 2:
+                    continue
+
+                if direction == -1:
+                    coords = coords[::-1]
+
+                seg = ToolpathSegment(operation=OperationType.POCKET, is_closed=False)
+                start_x, start_y = coords[0]
+                entry_z = self._apply_conformal_z(start_x, start_y, nominal_z)
+
+                seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=self.safe_z, move_type=MoveType.RAPID, feedrate_mm_min=self.rapid_speed))
+                seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=entry_z, move_type=MoveType.PLUNGE, feedrate_mm_min=self.tool.plunge_rate_z_mm_min))
+
+                for x, y_pt in coords[1:]:
+                    pt_z = self._apply_conformal_z(x, y_pt, nominal_z)
+                    seg.points.append(ToolpathPoint(x=x, y=y_pt, z=pt_z, move_type=MoveType.CUT, feedrate_mm_min=self.tool.feedrate_xy_mm_min))
+
+                seg.points.append(ToolpathPoint(x=coords[-1][0], y=coords[-1][1], z=self.safe_z, move_type=MoveType.RETRACT, feedrate_mm_min=self.rapid_speed))
+                segments.append(seg)
+                direction *= -1
+
+        return segments
+
     def _generate_profile_contour(
         self,
         polygon: sg.Polygon | sg.MultiPolygon,
         nominal_z: float,
-        offset_outside: bool = True
+        offset_outside: bool = True,
+        tabs_count: int = 0,
+        tab_width_mm: float = 5.0,
+        tab_height_mm: float = 2.0
     ) -> list[ToolpathSegment]:
-        """Generate outer/inner profile contour pass with cutter radius compensation."""
+        """Generate outer/inner profile contour pass with cutter radius compensation and holding tabs."""
         segments = []
         tool_r = self.tool.radius_mm
         offset_dist = tool_r if offset_outside else -tool_r
@@ -247,8 +325,17 @@ class SubtractiveSlicer:
             seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=self.safe_z, move_type=MoveType.RAPID, feedrate_mm_min=self.rapid_speed))
             seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=entry_z, move_type=MoveType.PLUNGE, feedrate_mm_min=self.tool.plunge_rate_z_mm_min))
 
-            for x, y in coords[1:]:
-                pt_z = self._apply_conformal_z(x, y, nominal_z)
+            total_pts = len(coords)
+            # If tabs requested, calculate tab indices
+            tab_step = (total_pts // tabs_count) if tabs_count > 0 else 999999
+
+            for idx_pt, (x, y) in enumerate(coords[1:]):
+                base_z = nominal_z
+                # If on a holding tab, bridge up
+                if tabs_count > 0 and (idx_pt % tab_step) < max(2, int(total_pts * 0.05)):
+                    base_z = min(self.stock.top_z, nominal_z + tab_height_mm)
+
+                pt_z = self._apply_conformal_z(x, y, base_z)
                 seg.points.append(ToolpathPoint(x=x, y=y, z=pt_z, move_type=MoveType.CUT, feedrate_mm_min=self.tool.feedrate_xy_mm_min))
 
             seg.points.append(ToolpathPoint(x=coords[-1][0], y=coords[-1][1], z=self.safe_z, move_type=MoveType.RETRACT, feedrate_mm_min=self.rapid_speed))

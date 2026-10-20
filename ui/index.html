@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CNC Milling Slicer — Subtractive Slicing Studio</title>
+  <title>CNC Milling Slicer — Subtractive Studio</title>
   <link rel="stylesheet" href="/static/style.css">
-  <!-- Three.js and OrbitControls for 3D Viewport -->
+  <!-- Three.js, OrbitControls, and TransformControls (Creality Slicer 3D Gizmos) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -16,7 +17,7 @@
       <div class="brand">
         <span class="brand-icon">⚙️</span>
         <span class="brand-title">CNC Milling Slicer</span>
-        <span class="brand-tag">Subtractive Studio</span>
+        <span class="brand-tag">Creality-Style CAM</span>
       </div>
       <div class="header-actions">
         <input type="file" id="stl-file-input" accept=".stl,.obj" style="display: none;">
@@ -43,8 +44,9 @@
 
     <!-- Main Workspace -->
     <div class="workspace">
-      <!-- Left Sidebar: Settings & Tool Library -->
+      <!-- Left Sidebar: Settings Accordions (Creality Slicer Style) -->
       <aside class="sidebar-left">
+        <!-- Panel 1: Inserted Model Info -->
         <div class="panel">
           <h3 class="panel-title">📦 Inserted 3D Model</h3>
           <div class="control-group">
@@ -72,42 +74,11 @@
           </div>
         </div>
 
+        <!-- Panel 2: Tool & Cutter Specs -->
         <div class="panel">
-          <h3 class="panel-title">📡 Toolhead LiDAR & Stock</h3>
+          <h3 class="panel-title">🛠️ Tool Library</h3>
           <div class="control-group">
-            <label>Stock Placement:</label>
-            <div class="lidar-status" id="lidar-status-badge">Auto-Detect Ready</div>
-          </div>
-          <div class="control-row">
-            <div>
-              <label>Width X (mm)</label>
-              <input type="number" id="stock-w" value="100" min="10" max="600">
-            </div>
-            <div>
-              <label>Length Y (mm)</label>
-              <input type="number" id="stock-l" value="80" min="10" max="600">
-            </div>
-          </div>
-          <div class="control-row">
-            <div>
-              <label>Thickness Z (mm)</label>
-              <input type="number" id="stock-t" value="20" min="2" max="150">
-            </div>
-            <div>
-              <label>Bed X0 / Y0</label>
-              <input type="text" id="stock-pos" value="X: 50, Y: 50" readonly>
-            </div>
-          </div>
-          <div class="control-group">
-            <label>Surface Warp (LiDAR Mesh):</label>
-            <div class="metric-val" id="surface-warp-val">0.08 mm (Flat)</div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h3 class="panel-title">🛠️ Tool Library & Feeds</h3>
-          <div class="control-group">
-            <label>Cutting Bit:</label>
+            <label>Endmill Bit:</label>
             <select id="tool-select">
               <option value="flat_1_8" selected>1/8" (3.175mm) Flat Endmill</option>
               <option value="flat_1_4">1/4" (6.35mm) Flat Endmill</option>
@@ -115,9 +86,21 @@
               <option value="v_bit_60">60° V-Carve Bit</option>
             </select>
           </div>
+        </div>
+
+        <!-- Panel 3: Infill / Pocket Clearing Pattern -->
+        <div class="panel">
+          <h3 class="panel-title">🪚 Infill & Pocket Clearing</h3>
+          <div class="control-group">
+            <label>Clearing Pattern:</label>
+            <select id="clearing-pattern">
+              <option value="concentric" selected>Concentric (Spiral Offsets)</option>
+              <option value="zigzag">Zig-Zag (Parallel Raster)</option>
+            </select>
+          </div>
           <div class="control-row">
             <div>
-              <label>Stepdown (mm)</label>
+              <label>Stepdown / Layer (mm)</label>
               <input type="number" id="cut-stepdown" value="1.0" step="0.2" min="0.1" max="10">
             </div>
             <div>
@@ -125,13 +108,48 @@
               <input type="number" id="cut-stepover" value="45" min="10" max="90">
             </div>
           </div>
+        </div>
+
+        <!-- Panel 4: Walls, Finish & Holding Tabs -->
+        <div class="panel">
+          <h3 class="panel-title">🛡️ Walls, Finish & Holding Tabs</h3>
           <div class="control-row">
             <div>
-              <label>Cut Feed (mm/m)</label>
+              <label>Finishing Allowance (mm)</label>
+              <input type="number" id="stock-to-leave" value="0.0" step="0.1" min="0" max="2" title="Stock to leave for final cleanup pass">
+            </div>
+            <div>
+              <label>Holding Tabs</label>
+              <select id="tabs-count">
+                <option value="0" selected>None</option>
+                <option value="2">2 Tabs</option>
+                <option value="4">4 Tabs</option>
+                <option value="6">6 Tabs</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-row" id="tabs-specs-row">
+            <div>
+              <label>Tab Width (mm)</label>
+              <input type="number" id="tab-width" value="5.0" min="1" max="20">
+            </div>
+            <div>
+              <label>Tab Height (mm)</label>
+              <input type="number" id="tab-height" value="2.0" min="0.5" max="10">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 5: Speeds & Feeds -->
+        <div class="panel">
+          <h3 class="panel-title">⚡ Speeds & Feeds</h3>
+          <div class="control-row">
+            <div>
+              <label>Cutting Feed (mm/min)</label>
               <input type="number" id="feed-xy" value="1200" step="100">
             </div>
             <div>
-              <label>Plunge (mm/m)</label>
+              <label>Plunge Rate (mm/min)</label>
               <input type="number" id="feed-z" value="300" step="50">
             </div>
           </div>
@@ -141,6 +159,39 @@
           </div>
         </div>
 
+        <!-- Panel 6: Stock & LiDAR Setup -->
+        <div class="panel">
+          <h3 class="panel-title">📡 Raw Stock & LiDAR</h3>
+          <div class="control-group">
+            <div class="lidar-status" id="lidar-status-badge">Auto-Detect Ready</div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Width X (mm)</label>
+              <input type="number" id="stock-w" value="60" min="10" max="600">
+            </div>
+            <div>
+              <label>Length Y (mm)</label>
+              <input type="number" id="stock-l" value="60" min="10" max="600">
+            </div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Thickness Z (mm)</label>
+              <input type="number" id="stock-t" value="30" min="2" max="150">
+            </div>
+            <div>
+              <label>Bed Position</label>
+              <input type="text" id="stock-pos" value="X: 50, Y: 50" readonly>
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Surface Warp (LiDAR Mesh):</label>
+            <div class="metric-val" id="surface-warp-val">0.08 mm (Flat)</div>
+          </div>
+        </div>
+
+        <!-- Panel 7: Slicing Statistics -->
         <div class="panel">
           <h3 class="panel-title">📊 Slicing Statistics</h3>
           <div class="stats-grid">
@@ -164,9 +215,135 @@
         </div>
       </aside>
 
-      <!-- Center 3D Viewport -->
+      <!-- Center 3D Viewport with Creality-style Left Toolbar -->
       <main class="viewport-container" id="viewport-3d">
-        <!-- 3D Canvas will be injected here -->
+        <!-- Creality Slicer Left Vertical Tool Palette -->
+        <div class="creality-toolbar">
+          <button class="tool-btn active" id="tool-select-btn" title="Orbit / View (Esc)">
+            <span class="tool-icon">🖱️</span>
+            <span class="tool-name">View</span>
+          </button>
+          <button class="tool-btn" id="tool-translate-btn" title="Move / Position (W)">
+            <span class="tool-icon">✥</span>
+            <span class="tool-name">Move</span>
+          </button>
+          <button class="tool-btn" id="tool-rotate-btn" title="Rotate / Orientation (E)">
+            <span class="tool-icon">🔄</span>
+            <span class="tool-name">Rotate</span>
+          </button>
+          <button class="tool-btn" id="tool-scale-btn" title="Scale / Resize (R)">
+            <span class="tool-icon">📐</span>
+            <span class="tool-name">Scale</span>
+          </button>
+          <button class="tool-btn" id="tool-mirror-btn" title="Mirror / Flip (M)">
+            <span class="tool-icon">🪞</span>
+            <span class="tool-name">Mirror</span>
+          </button>
+          <div class="tool-divider"></div>
+          <button class="tool-btn" id="tool-layflat-btn" title="Lay on Flat Face (Drop to Bed)">
+            <span class="tool-icon">🛏️</span>
+            <span class="tool-name">Lay Flat</span>
+          </button>
+          <button class="tool-btn" id="tool-center-btn" title="Center Model in Stock">
+            <span class="tool-icon">🎯</span>
+            <span class="tool-name">Center</span>
+          </button>
+          <button class="tool-btn" id="tool-reset-btn" title="Reset All Transformations">
+            <span class="tool-icon">↺</span>
+            <span class="tool-name">Reset</span>
+          </button>
+        </div>
+
+        <!-- Floating Creality Transform Drawer -->
+        <div class="transform-drawer" id="transform-drawer" style="display: none;">
+          <div class="drawer-header">
+            <span class="drawer-title" id="drawer-title">Move Tool</span>
+            <button class="drawer-close" id="drawer-close">✕</button>
+          </div>
+
+          <!-- Move Sub-Panel -->
+          <div class="drawer-content" id="drawer-move-content">
+            <div class="transform-row">
+              <label>X Position (mm)</label>
+              <input type="number" id="tf-pos-x" value="0.0" step="1.0">
+            </div>
+            <div class="transform-row">
+              <label>Y Position (mm)</label>
+              <input type="number" id="tf-pos-y" value="0.0" step="1.0">
+            </div>
+            <div class="transform-row">
+              <label>Z Position (mm)</label>
+              <input type="number" id="tf-pos-z" value="0.0" step="0.5">
+            </div>
+            <div class="drawer-actions">
+              <button class="btn btn-tool" id="btn-drawer-center">Center in Stock</button>
+              <button class="btn btn-tool" id="btn-drawer-drop">Drop to Bed (Z=0)</button>
+            </div>
+          </div>
+
+          <!-- Rotate / Orientation Sub-Panel -->
+          <div class="drawer-content" id="drawer-rotate-content" style="display: none;">
+            <div class="transform-row">
+              <label>Rotate X (°)</label>
+              <div class="input-with-button">
+                <input type="number" id="tf-rot-x" value="0" step="15">
+                <button class="btn-micro" id="btn-rot-x-90">+90°</button>
+              </div>
+            </div>
+            <div class="transform-row">
+              <label>Rotate Y (°)</label>
+              <div class="input-with-button">
+                <input type="number" id="tf-rot-y" value="0" step="15">
+                <button class="btn-micro" id="btn-rot-y-90">+90°</button>
+              </div>
+            </div>
+            <div class="transform-row">
+              <label>Rotate Z (°)</label>
+              <div class="input-with-button">
+                <input type="number" id="tf-rot-z" value="0" step="15">
+                <button class="btn-micro" id="btn-rot-z-90">+90°</button>
+              </div>
+            </div>
+            <div class="drawer-actions">
+              <button class="btn btn-tool" id="btn-drawer-layflat">Lay Flat Face</button>
+              <button class="btn btn-tool" id="btn-drawer-rot-reset">Reset Orientation</button>
+            </div>
+          </div>
+
+          <!-- Scale Sub-Panel -->
+          <div class="drawer-content" id="drawer-scale-content" style="display: none;">
+            <div class="transform-row">
+              <label>Scale X (%)</label>
+              <input type="number" id="tf-scale-x" value="100" min="1" max="1000" step="5">
+            </div>
+            <div class="transform-row">
+              <label>Scale Y (%)</label>
+              <input type="number" id="tf-scale-y" value="100" min="1" max="1000" step="5">
+            </div>
+            <div class="transform-row">
+              <label>Scale Z (%)</label>
+              <input type="number" id="tf-scale-z" value="100" min="1" max="1000" step="5">
+            </div>
+            <div class="checkbox-row">
+              <label><input type="checkbox" id="tf-scale-uniform" checked> Uniform Scaling</label>
+            </div>
+            <div class="drawer-actions">
+              <button class="btn btn-tool" id="btn-drawer-fit">Auto-Fit into Stock</button>
+              <button class="btn btn-tool" id="btn-drawer-scale-reset">Reset 100%</button>
+            </div>
+          </div>
+
+          <!-- Mirror Sub-Panel -->
+          <div class="drawer-content" id="drawer-mirror-content" style="display: none;">
+            <div class="drawer-actions-col">
+              <button class="btn btn-tool" id="btn-mirror-x">🪞 Mirror on X Axis</button>
+              <button class="btn btn-tool" id="btn-mirror-y">🪞 Mirror on Y Axis</button>
+              <button class="btn btn-tool" id="btn-mirror-z">🪞 Mirror on Z Axis (Flip upside-down)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3D Viewport Legend -->
         <div class="viewport-overlay-info" id="overlay-info">
           <div><span class="legend-box stock-legend"></span> Translucent Raw Stock</div>
           <div><span class="legend-box part-legend"></span> Target Part (Design)</div>
@@ -174,11 +351,12 @@
           <div><span class="legend-box rapid-legend"></span> Rapid Travel (G0)</div>
         </div>
 
+        <!-- Preset Viewport Buttons -->
         <div class="viewport-controls">
           <button id="btn-view-top" class="btn-tool">Top View</button>
           <button id="btn-view-iso" class="btn-tool">Isometric</button>
           <button id="btn-view-front" class="btn-tool">Front</button>
-          <button id="btn-reset-cam" class="btn-tool">Reset</button>
+          <button id="btn-reset-cam" class="btn-tool">Reset Cam</button>
           <div class="sim-speed-wrapper">
             <span class="sim-speed-label">Sim Speed:</span>
             <select id="sim-speed-select" class="select-sim-speed">
@@ -224,7 +402,7 @@
 
     <!-- Status Bar -->
     <footer class="app-statusbar">
-      <span id="status-text">Ready. Place raw stock on bed or click Auto-Scan Bed (LiDAR).</span>
+      <span id="status-text">Ready. Insert 3D model, adjust orientation, and click Slice Stock.</span>
       <span class="status-right">G-Code: GRBL 1.1 / LinuxCNC Compatible • Units: Metric (mm)</span>
     </footer>
   </div>

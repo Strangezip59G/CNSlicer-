@@ -76,6 +76,42 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertIn("G21", gcode_data["gcode"])
         self.assertGreater(gcode_data["lines"], 20)
 
+    def test_transforms_and_advanced_slicing_options(self):
+        # First load sample pyramid
+        self.client.get("/api/model/sample_pyramid")
+
+        # Slice with rotation, scale, position offset, zigzag clearing, stock allowance, and holding tabs
+        slice_res = self.client.post("/api/slice", data=json.dumps({
+            "model_type": "custom_stl",
+            "stock_w": 90, "stock_l": 90, "stock_t": 35,
+            "stepdown": 3.0, "stepover": 0.5, "tool_d": 3.175,
+            "pos_x": 5.0, "pos_y": -5.0, "pos_z": 0.0,
+            "rot_x": 0.0, "rot_y": 0.0, "rot_z": 45.0,
+            "scale_x": 0.8, "scale_y": 0.8, "scale_z": 0.8,
+            "clearing_pattern": "zigzag",
+            "stock_to_leave": 0.5,
+            "tabs_count": 4,
+            "tab_width": 5.0,
+            "tab_height": 2.0
+        }), content_type="application/json")
+        self.assertEqual(slice_res.status_code, 200)
+        slice_data = slice_res.get_json()
+        self.assertTrue(slice_data["success"])
+        self.assertGreater(slice_data["layer_count"], 3)
+        self.assertGreater(slice_data["cut_distance_mm"], 50)
+
+    def test_layflat_endpoint(self):
+        # Load sample pyramid
+        self.client.get("/api/model/sample_pyramid")
+        # Call layflat
+        res = self.client.post("/api/model/layflat")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("metadata", data)
+        self.assertIn("vertices", data)
+        self.assertIn("faces", data)
+
 
 if __name__ == "__main__":
     unittest.main()

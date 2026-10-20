@@ -1,8 +1,10 @@
 // CNC Milling Slicer — Subtractive Studio Version 1
-let scene, camera, renderer, controls;
+let scene, camera, renderer, controls, transformControls;
 let bedGrid, stockMesh, partMeshGroup, toolpathLinesGroup, toolMeshGroup;
+let currentMesh = null;
 let currentSlicingData = null;
 let currentModelType = "sample2";
+let activeTool = "select"; // 'select', 'translate', 'rotate', 'scale', 'mirror'
 let isSimulating = false;
 let simIndex = 0;
 let simPoints = [];
@@ -27,21 +29,38 @@ function initViewport() {
   renderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(renderer.domElement);
 
-  // Orbit controls
+  // Orbit controls (Orbit / Pan / Zoom)
   controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(60, 40, 10);
+  controls.target.set(80, 80, 15);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
+  // Transform Gizmo Controls (Creality Slicer 3D handles)
+  transformControls = new THREE.TransformControls(camera, renderer.domElement);
+  transformControls.size = 0.75;
+  transformControls.space = "local";
+  scene.add(transformControls);
+
+  // Disable OrbitControls while dragging gizmo
+  transformControls.addEventListener("dragging-changed", (event) => {
+    controls.enabled = !event.value;
+  });
+
+  // Sync 3D Gizmo drags back to input drawer fields
+  transformControls.addEventListener("objectChange", () => {
+    if (!currentMesh) return;
+    syncMeshToUI();
+  });
+
   // Lighting
-  const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+  const ambLight = new THREE.AmbientLight(0xffffff, 0.65);
   scene.add(ambLight);
 
-  const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+  const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.85);
   dirLight1.position.set(200, 200, 300);
   scene.add(dirLight1);
 
-  const dirLight2 = new THREE.DirectionalLight(0x90caf9, 0.4);
+  const dirLight2 = new THREE.DirectionalLight(0x90caf9, 0.45);
   dirLight2.position.set(-200, -200, 100);
   scene.add(dirLight2);
 
@@ -70,6 +89,9 @@ function initViewport() {
 
   // Drag-and-drop STL handler on canvas
   setupDragAndDrop(container);
+
+  // Setup Creality tool listeners
+  setupCrealityControls();
 
   animate();
 }
@@ -145,7 +167,7 @@ function createToolMesh(diameter = 3.175) {
   bit.position.set(0, 0, 12.5);
   group.add(bit);
 
-  // ER11 Spindle Collet (black cone)
+  // ER11 Spindle Collet (dark collet cone)
   const colletGeo = new THREE.CylinderGeometry(10, 5, 20, 16);
   colletGeo.rotateX(Math.PI / 2);
   const colletMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.8, roughness: 0.5 });
@@ -158,6 +180,7 @@ function createToolMesh(diameter = 3.175) {
 
 // Load 3D Mesh into Scene
 function display3DMesh(vertices, faces, metadata) {
+  transformControls.detach();
   while (partMeshGroup.children.length > 0) {
     partMeshGroup.remove(partMeshGroup.children[0]);
   }
@@ -173,7 +196,7 @@ function display3DMesh(vertices, faces, metadata) {
     indices.push(faces[i][0], faces[i][1], faces[i][2]);
   }
 
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
@@ -191,6 +214,12 @@ function display3DMesh(vertices, faces, metadata) {
   mesh.position.set(50 + stockW / 2, 50 + stockL / 2, 0);
 
   partMeshGroup.add(mesh);
+  currentMesh = mesh;
+
+  // Re-attach gizmo if currently in a transform tool
+  if (activeTool !== "select" && activeTool !== "mirror") {
+    transformControls.attach(currentMesh);
+  }
 
   // Update UI metadata panel
   document.getElementById("model-name-badge").textContent = metadata.name || "3D Model";
@@ -199,7 +228,327 @@ function display3DMesh(vertices, faces, metadata) {
   document.getElementById("model-dim-z").value = metadata.height.toFixed(1);
   document.getElementById("model-poly-count").value = metadata.faces_count || faces.length;
 
+  // Reset transform inputs to identity
+  resetTransformsUI();
+
   document.getElementById("status-text").textContent = `Loaded 3D Model: ${metadata.name} (${metadata.width.toFixed(1)} x ${metadata.length.toFixed(1)} x ${metadata.height.toFixed(1)} mm)`;
+}
+
+// Reset UI transform fields to 0 pos, 0 rot, 100% scale
+function resetTransformsUI() {
+  document.getElementById("tf-pos-x").value = "0.0";
+  document.getElementById("tf-pos-y").value = "0.0";
+  document.getElementById("tf-pos-z").value = "0.0";
+  document.getElementById("tf-rot-x").value = "0";
+  document.getElementById("tf-rot-y").value = "0";
+  document.getElementById("tf-rot-z").value = "0";
+  document.getElementById("tf-scale-x").value = "100";
+  document.getElementById("tf-scale-y").value = "100";
+  document.getElementById("tf-scale-z").value = "100";
+}
+
+// Synchronize mesh transformations -> UI drawer fields
+function syncMeshToUI() {
+  if (!currentMesh) return;
+  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
+  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
+  const baseX = 50 + stockW / 2;
+  const baseY = 50 + stockL / 2;
+
+  const px = currentMesh.position.x - baseX;
+  const py = currentMesh.position.y - baseY;
+  const pz = currentMesh.position.z;
+
+  document.getElementById("tf-pos-x").value = px.toFixed(1);
+  document.getElementById("tf-pos-y").value = py.toFixed(1);
+  document.getElementById("tf-pos-z").value = pz.toFixed(1);
+
+  // Convert radians to degrees
+  const rx = THREE.MathUtils.radToDeg(currentMesh.rotation.x);
+  const ry = THREE.MathUtils.radToDeg(currentMesh.rotation.y);
+  const rz = THREE.MathUtils.radToDeg(currentMesh.rotation.z);
+
+  document.getElementById("tf-rot-x").value = Math.round(rx % 360);
+  document.getElementById("tf-rot-y").value = Math.round(ry % 360);
+  document.getElementById("tf-rot-z").value = Math.round(rz % 360);
+
+  // Scale in percentage
+  document.getElementById("tf-scale-x").value = Math.round(currentMesh.scale.x * 100);
+  document.getElementById("tf-scale-y").value = Math.round(currentMesh.scale.y * 100);
+  document.getElementById("tf-scale-z").value = Math.round(currentMesh.scale.z * 100);
+}
+
+// Synchronize UI drawer fields -> mesh transformations
+function syncUIToMesh() {
+  if (!currentMesh) return;
+  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
+  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
+  const baseX = 50 + stockW / 2;
+  const baseY = 50 + stockL / 2;
+
+  const px = parseFloat(document.getElementById("tf-pos-x").value || 0);
+  const py = parseFloat(document.getElementById("tf-pos-y").value || 0);
+  const pz = parseFloat(document.getElementById("tf-pos-z").value || 0);
+
+  const rx = THREE.MathUtils.degToRad(parseFloat(document.getElementById("tf-rot-x").value || 0));
+  const ry = THREE.MathUtils.degToRad(parseFloat(document.getElementById("tf-rot-y").value || 0));
+  const rz = THREE.MathUtils.degToRad(parseFloat(document.getElementById("tf-rot-z").value || 0));
+
+  const sx = parseFloat(document.getElementById("tf-scale-x").value || 100) / 100;
+  const sy = parseFloat(document.getElementById("tf-scale-y").value || 100) / 100;
+  const sz = parseFloat(document.getElementById("tf-scale-z").value || 100) / 100;
+
+  currentMesh.position.set(baseX + px, baseY + py, pz);
+  currentMesh.rotation.set(rx, ry, rz);
+  currentMesh.scale.set(sx, sy, sz);
+}
+
+// Creality Tool Selector & Drawer Management
+function setActiveTool(tool) {
+  activeTool = tool;
+  const drawer = document.getElementById("transform-drawer");
+  const drawerTitle = document.getElementById("drawer-title");
+  const contentMove = document.getElementById("drawer-move-content");
+  const contentRotate = document.getElementById("drawer-rotate-content");
+  const contentScale = document.getElementById("drawer-scale-content");
+  const contentMirror = document.getElementById("drawer-mirror-content");
+
+  // Update active state on toolbar buttons
+  const buttons = {
+    select: document.getElementById("tool-select-btn"),
+    translate: document.getElementById("tool-translate-btn"),
+    rotate: document.getElementById("tool-rotate-btn"),
+    scale: document.getElementById("tool-scale-btn"),
+    mirror: document.getElementById("tool-mirror-btn")
+  };
+  Object.values(buttons).forEach((b) => b && b.classList.remove("active"));
+  if (buttons[tool]) buttons[tool].classList.add("active");
+
+  // Hide all sub-panels first
+  contentMove.style.display = "none";
+  contentRotate.style.display = "none";
+  contentScale.style.display = "none";
+  contentMirror.style.display = "none";
+
+  if (tool === "select") {
+    transformControls.detach();
+    drawer.style.display = "none";
+    document.getElementById("status-text").textContent = "View mode active. Orbit with left click, pan with right click, zoom with wheel.";
+    return;
+  }
+
+  drawer.style.display = "block";
+
+  if (tool === "translate") {
+    drawerTitle.textContent = "Move Tool";
+    contentMove.style.display = "flex";
+    if (currentMesh) {
+      transformControls.setMode("translate");
+      transformControls.attach(currentMesh);
+    }
+    document.getElementById("status-text").textContent = "Move Tool: Drag 3D XYZ arrows or enter coordinate offsets.";
+  } else if (tool === "rotate") {
+    drawerTitle.textContent = "Rotate Tool";
+    contentRotate.style.display = "flex";
+    if (currentMesh) {
+      transformControls.setMode("rotate");
+      transformControls.attach(currentMesh);
+    }
+    document.getElementById("status-text").textContent = "Rotate Tool: Drag rotation rings, click +90°, or click Lay Flat.";
+  } else if (tool === "scale") {
+    drawerTitle.textContent = "Scale Tool";
+    contentScale.style.display = "flex";
+    if (currentMesh) {
+      transformControls.setMode("scale");
+      transformControls.attach(currentMesh);
+    }
+    document.getElementById("status-text").textContent = "Scale Tool: Drag scaling handles or enter percentage scale.";
+  } else if (tool === "mirror") {
+    drawerTitle.textContent = "Mirror Tool";
+    contentMirror.style.display = "flex";
+    transformControls.detach();
+    document.getElementById("status-text").textContent = "Mirror Tool: Click an axis to flip model orientation.";
+  }
+}
+
+// Lay Flat Face onto Bed Floor (Z=0)
+async function layFlatModel() {
+  document.getElementById("status-text").textContent = "Computing optimal flat face orientation (aligning to spoilboard Z=0)...";
+  try {
+    const res = await fetch("/api/model/layflat", { method: "POST" });
+    const data = await res.json();
+    if (data.success) {
+      display3DMesh(data.vertices, data.faces, data.metadata);
+      document.getElementById("status-text").textContent = "Model laid flat against spoilboard bed (Z=0).";
+    } else {
+      alert("Lay flat failed: " + (data.error || "Unknown error"));
+    }
+  } catch (err) {
+    console.error("Lay flat error:", err);
+  }
+}
+
+// Center model inside stock boundaries
+function centerModelInStock() {
+  document.getElementById("tf-pos-x").value = "0.0";
+  document.getElementById("tf-pos-y").value = "0.0";
+  document.getElementById("tf-pos-z").value = "0.0";
+  syncUIToMesh();
+  document.getElementById("status-text").textContent = "Model centered in stock block.";
+}
+
+// Drop model base directly to bed Z=0
+function dropModelToBed() {
+  document.getElementById("tf-pos-z").value = "0.0";
+  syncUIToMesh();
+  document.getElementById("status-text").textContent = "Model dropped to bed floor (Z=0).";
+}
+
+// Reset all model transformations
+function resetAllTransforms() {
+  resetTransformsUI();
+  syncUIToMesh();
+  document.getElementById("status-text").textContent = "Model transformations reset to default.";
+}
+
+// Increment rotation angle by +90 degrees
+function addRotation(axis, degrees) {
+  const inp = document.getElementById(`tf-rot-${axis}`);
+  let val = (parseFloat(inp.value || 0) + degrees) % 360;
+  if (val < 0) val += 360;
+  inp.value = val;
+  syncUIToMesh();
+}
+
+// Auto-Fit model into stock with safe boundary clearances
+function autoFitModelIntoStock() {
+  if (!currentMesh) return;
+  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
+  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
+  const stockT = parseFloat(document.getElementById("stock-t").value || 30);
+  const mX = parseFloat(document.getElementById("model-dim-x").value || 1);
+  const mY = parseFloat(document.getElementById("model-dim-y").value || 1);
+  const mZ = parseFloat(document.getElementById("model-dim-z").value || 1);
+
+  const fitX = (stockW - 10) / mX;
+  const fitY = (stockL - 10) / mY;
+  const fitZ = (stockT - 2) / mZ;
+  const bestRatio = Math.min(fitX, fitY, fitZ);
+  const pct = Math.max(10, Math.floor(bestRatio * 100));
+
+  document.getElementById("tf-scale-x").value = pct;
+  document.getElementById("tf-scale-y").value = pct;
+  document.getElementById("tf-scale-z").value = pct;
+  syncUIToMesh();
+  document.getElementById("status-text").textContent = `Auto-fit scaled model to ${pct}% to safely fit stock boundaries.`;
+}
+
+// Mirror model along an axis
+function mirrorAxis(axis) {
+  if (!currentMesh) return;
+  const inp = document.getElementById(`tf-scale-${axis}`);
+  const curr = parseFloat(inp.value || 100);
+  inp.value = -curr;
+  syncUIToMesh();
+  document.getElementById("status-text").textContent = `Mirrored model along ${axis.toUpperCase()} axis.`;
+}
+
+// Setup Creality Toolbar, Drawer, and Transform Event Listeners
+function setupCrealityControls() {
+  // Toolbar buttons
+  document.getElementById("tool-select-btn").addEventListener("click", () => setActiveTool("select"));
+  document.getElementById("tool-translate-btn").addEventListener("click", () => setActiveTool("translate"));
+  document.getElementById("tool-rotate-btn").addEventListener("click", () => setActiveTool("rotate"));
+  document.getElementById("tool-scale-btn").addEventListener("click", () => setActiveTool("scale"));
+  document.getElementById("tool-mirror-btn").addEventListener("click", () => setActiveTool("mirror"));
+  document.getElementById("tool-layflat-btn").addEventListener("click", layFlatModel);
+  document.getElementById("tool-center-btn").addEventListener("click", centerModelInStock);
+  document.getElementById("tool-reset-btn").addEventListener("click", resetAllTransforms);
+
+  // Drawer close button
+  document.getElementById("drawer-close").addEventListener("click", () => setActiveTool("select"));
+
+  // Move Drawer actions
+  document.getElementById("btn-drawer-center").addEventListener("click", centerModelInStock);
+  document.getElementById("btn-drawer-drop").addEventListener("click", dropModelToBed);
+
+  // Rotate Drawer actions
+  document.getElementById("btn-rot-x-90").addEventListener("click", () => addRotation("x", 90));
+  document.getElementById("btn-rot-y-90").addEventListener("click", () => addRotation("y", 90));
+  document.getElementById("btn-rot-z-90").addEventListener("click", () => addRotation("z", 90));
+  document.getElementById("btn-drawer-layflat").addEventListener("click", layFlatModel);
+  document.getElementById("btn-drawer-rot-reset").addEventListener("click", () => {
+    document.getElementById("tf-rot-x").value = "0";
+    document.getElementById("tf-rot-y").value = "0";
+    document.getElementById("tf-rot-z").value = "0";
+    syncUIToMesh();
+  });
+
+  // Scale Drawer actions
+  const uniformChk = document.getElementById("tf-scale-uniform");
+  ["x", "y", "z"].forEach((axis) => {
+    const input = document.getElementById(`tf-scale-${axis}`);
+    input.addEventListener("input", (e) => {
+      if (uniformChk.checked) {
+        ["x", "y", "z"].forEach((otherAxis) => {
+          if (otherAxis !== axis) {
+            document.getElementById(`tf-scale-${otherAxis}`).value = e.target.value;
+          }
+        });
+      }
+      syncUIToMesh();
+    });
+  });
+
+  document.getElementById("btn-drawer-fit").addEventListener("click", autoFitModelIntoStock);
+  document.getElementById("btn-drawer-scale-reset").addEventListener("click", () => {
+    document.getElementById("tf-scale-x").value = "100";
+    document.getElementById("tf-scale-y").value = "100";
+    document.getElementById("tf-scale-z").value = "100";
+    syncUIToMesh();
+  });
+
+  // Mirror Drawer actions
+  document.getElementById("btn-mirror-x").addEventListener("click", () => mirrorAxis("x"));
+  document.getElementById("btn-mirror-y").addEventListener("click", () => mirrorAxis("y"));
+  document.getElementById("btn-mirror-z").addEventListener("click", () => mirrorAxis("z"));
+
+  // Inputs live change listeners
+  ["tf-pos-x", "tf-pos-y", "tf-pos-z", "tf-rot-x", "tf-rot-y", "tf-rot-z"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", syncUIToMesh);
+  });
+
+  // Holding tabs UI visibility toggle
+  const tabsCountSelect = document.getElementById("tabs-count");
+  const tabsSpecsRow = document.getElementById("tabs-specs-row");
+  tabsCountSelect.addEventListener("change", () => {
+    const hasTabs = parseInt(tabsCountSelect.value) > 0;
+    tabsSpecsRow.style.opacity = hasTabs ? "1" : "0.4";
+    tabsSpecsRow.style.pointerEvents = hasTabs ? "auto" : "none";
+  });
+  tabsSpecsRow.style.opacity = "0.4";
+  tabsSpecsRow.style.pointerEvents = "none";
+
+  // Stock dimensions live updates
+  ["stock-w", "stock-l", "stock-t"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => {
+      const sw = parseFloat(document.getElementById("stock-w").value);
+      const sl = parseFloat(document.getElementById("stock-l").value);
+      const st = parseFloat(document.getElementById("stock-t").value);
+      updateStockMesh(sw, sl, st, 50, 50);
+      syncUIToMesh();
+    });
+  });
+
+  // Creality Keyboard Shortcuts: Esc (View), W (Move), E (Rotate), R (Scale), M (Mirror)
+  window.addEventListener("keydown", (e) => {
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+    if (e.key === "Escape") setActiveTool("select");
+    else if (e.key === "w" || e.key === "W") setActiveTool("translate");
+    else if (e.key === "e" || e.key === "E") setActiveTool("rotate");
+    else if (e.key === "r" || e.key === "R") setActiveTool("scale");
+    else if (e.key === "m" || e.key === "M") setActiveTool("mirror");
+  });
 }
 
 // Load Sample 2 (Stepped Pyramid 3D model)
@@ -251,7 +600,6 @@ async function uploadStlFile(file) {
 
     updateStockMesh(autoW, autoL, autoT, 50, 50);
     display3DMesh(data.vertices, data.faces, data.metadata);
-
   } catch (err) {
     console.error("Upload error:", err);
     alert("Upload failed. See console.");
@@ -289,8 +637,10 @@ async function autoScanBedLidar() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        bed_w: 400, bed_l: 400,
-        stock_x: 50, stock_y: 50,
+        bed_w: 400,
+        bed_l: 400,
+        stock_x: 50,
+        stock_y: 50,
         stock_w: parseFloat(document.getElementById("stock-w").value),
         stock_l: parseFloat(document.getElementById("stock-l").value),
         stock_t: parseFloat(document.getElementById("stock-t").value)
@@ -312,7 +662,7 @@ async function autoScanBedLidar() {
   }
 }
 
-// Slicing Core
+// Slicing Core with Creality Transform Inputs & Machining Options
 async function sliceCurrentModel() {
   const sliceBtn = document.getElementById("btn-slice");
   sliceBtn.disabled = true;
@@ -329,7 +679,25 @@ async function sliceCurrentModel() {
       stepover: parseFloat(document.getElementById("cut-stepover").value) / 100.0,
       feed_xy: parseFloat(document.getElementById("feed-xy").value),
       feed_z: parseFloat(document.getElementById("feed-z").value),
-      tool_d: document.getElementById("tool-select").value === "flat_1_4" ? 6.35 : 3.175
+      tool_d: document.getElementById("tool-select").value === "flat_1_4" ? 6.35 : 3.175,
+
+      // Creality Transforms
+      pos_x: parseFloat(document.getElementById("tf-pos-x").value || 0),
+      pos_y: parseFloat(document.getElementById("tf-pos-y").value || 0),
+      pos_z: parseFloat(document.getElementById("tf-pos-z").value || 0),
+      rot_x: parseFloat(document.getElementById("tf-rot-x").value || 0),
+      rot_y: parseFloat(document.getElementById("tf-rot-y").value || 0),
+      rot_z: parseFloat(document.getElementById("tf-rot-z").value || 0),
+      scale_x: parseFloat(document.getElementById("tf-scale-x").value || 100) / 100.0,
+      scale_y: parseFloat(document.getElementById("tf-scale-y").value || 100) / 100.0,
+      scale_z: parseFloat(document.getElementById("tf-scale-z").value || 100) / 100.0,
+
+      // Infill Pattern & Tabs
+      clearing_pattern: document.getElementById("clearing-pattern").value,
+      stock_to_leave: parseFloat(document.getElementById("stock-to-leave").value || 0),
+      tabs_count: parseInt(document.getElementById("tabs-count").value || 0),
+      tab_width: parseFloat(document.getElementById("tab-width").value || 5.0),
+      tab_height: parseFloat(document.getElementById("tab-height").value || 2.0)
     };
 
     const res = await fetch("/api/slice", {
@@ -385,7 +753,7 @@ function renderToolpaths(layers, maxVisibleLayerIndex = 9999) {
   layers.forEach((lyr, lIdx) => {
     if (lIdx > maxVisibleLayerIndex) return;
 
-    lyr.segments.forEach(seg => {
+    lyr.segments.forEach((seg) => {
       const cutPoints = [];
       const rapidPoints = [];
 
@@ -442,7 +810,6 @@ function toggleSimulation() {
   const simBtn = document.getElementById("btn-play-sim");
 
   if (isSimulating) {
-    // Stop simulation
     clearInterval(simInterval);
     isSimulating = false;
     simBtn.textContent = "▶";
@@ -451,16 +818,16 @@ function toggleSimulation() {
     return;
   }
 
-  // Extract all points for currently selected layer (or all layers)
+  // Extract points for currently selected layer (or all layers)
   const layerVal = parseInt(document.getElementById("layer-slider").value);
   const layersToSim = (layerVal === 0 || layerVal === currentSlicingData.layer_count)
     ? currentSlicingData.layers
     : [currentSlicingData.layers[layerVal - 1]];
 
   simPoints = [];
-  layersToSim.forEach(lyr => {
-    lyr.segments.forEach(seg => {
-      seg.points.forEach(pt => simPoints.push(pt));
+  layersToSim.forEach((lyr) => {
+    lyr.segments.forEach((seg) => {
+      seg.points.forEach((pt) => simPoints.push(pt));
     });
   });
 

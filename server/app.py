@@ -8,6 +8,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
+import numpy as np
 import shapely.geometry as sg
 import trimesh
 
@@ -108,6 +109,23 @@ def slice_model():
     feed_xy = float(data.get("feed_xy", 1200.0))
     feed_z = float(data.get("feed_z", 300.0))
 
+    # Transform parameters (Creality Slicer controls)
+    pos_x = float(data.get("pos_x", 0.0))
+    pos_y = float(data.get("pos_y", 0.0))
+    pos_z = float(data.get("pos_z", 0.0))
+    rot_x = float(data.get("rot_x", 0.0))
+    rot_y = float(data.get("rot_y", 0.0))
+    rot_z = float(data.get("rot_z", 0.0))
+    scale_x = float(data.get("scale_x", 1.0))
+    scale_y = float(data.get("scale_y", 1.0))
+    scale_z = float(data.get("scale_z", 1.0))
+
+    clearing_pattern = str(data.get("clearing_pattern", "concentric"))
+    stock_to_leave = float(data.get("stock_to_leave", 0.0))
+    tabs_count = int(data.get("tabs_count", 0))
+    tab_width = float(data.get("tab_width", 5.0))
+    tab_height = float(data.get("tab_height", 2.0))
+
     stock = StockBlock(width_x=stock_w, length_y=stock_l, thickness_z=stock_t, origin_x=50.0, origin_y=50.0)
     tool = CuttingTool(
         tool_id=1,
@@ -122,23 +140,50 @@ def slice_model():
 
     slicer = SubtractiveSlicer(stock=stock, tool=tool)
 
+    mesh_to_slice = None
     if model_type == "custom_stl" and current_loaded_mesh is not None:
-        mesh = current_loaded_mesh.copy()
-        target_cx = 50.0 + stock_w / 2.0
-        target_cy = 50.0 + stock_l / 2.0
-        mesh.apply_translation([target_cx, target_cy, 0.0])
-        result = slicer.slice_3d_mesh(mesh=mesh, z_bottom=0.0, custom_stepdown=stepdown)
+        mesh_to_slice = current_loaded_mesh.copy()
     elif model_type == "sample2":
         # Sample 2: 3-Tier Stepped Pyramid from solid stock
         b1 = trimesh.creation.box(extents=[20, 20, 10])
-        b1.apply_translation([80, 80, 25])
+        b1.apply_translation([0, 0, 25])
         b2 = trimesh.creation.box(extents=[40, 40, 10])
-        b2.apply_translation([80, 80, 15])
+        b2.apply_translation([0, 0, 15])
         b3 = trimesh.creation.box(extents=[60, 60, 10])
-        b3.apply_translation([80, 80, 5])
-        mesh = trimesh.util.concatenate([b1, b2, b3])
+        b3.apply_translation([0, 0, 5])
+        mesh_to_slice = trimesh.util.concatenate([b1, b2, b3])
 
-        result = slicer.slice_3d_mesh(mesh=mesh, z_bottom=0.0, custom_stepdown=stepdown)
+    if mesh_to_slice is not None:
+        # 1. Center mesh XY at (0, 0) and bottom at Z=0
+        mesh_to_slice.apply_translation([-mesh_to_slice.centroid[0], -mesh_to_slice.centroid[1], -mesh_to_slice.bounds[0][2]])
+
+        # 2. Apply Orientation / Rotations (around mesh center)
+        if any(abs(r) > 0.01 for r in [rot_x, rot_y, rot_z]):
+            rx, ry, rz = np.radians(rot_x), np.radians(rot_y), np.radians(rot_z)
+            rot_mat = trimesh.transformations.euler_matrix(rx, ry, rz)
+            mesh_to_slice.apply_transform(rot_mat)
+
+        # 3. Apply Scale
+        if any(abs(s - 1.0) > 0.001 for s in [scale_x, scale_y, scale_z]):
+            mesh_to_slice.apply_scale([scale_x, scale_y, scale_z])
+
+        # 4. Position model on stock floor
+        mesh_to_slice.apply_translation([
+            -mesh_to_slice.centroid[0] + (50.0 + stock_w / 2.0 + pos_x),
+            -mesh_to_slice.centroid[1] + (50.0 + stock_l / 2.0 + pos_y),
+            -mesh_to_slice.bounds[0][2] + pos_z
+        ])
+
+        result = slicer.slice_3d_mesh(
+            mesh=mesh_to_slice,
+            z_bottom=0.0,
+            custom_stepdown=stepdown,
+            clearing_pattern=clearing_pattern,
+            stock_to_leave_mm=stock_to_leave,
+            tabs_count=tabs_count,
+            tab_width_mm=tab_width,
+            tab_height_mm=tab_height
+        )
     else:
         # Sample 1: Block with circular hole and oblong slot
         cx, cy = 50 + stock_w / 2, 50 + stock_l / 2
@@ -279,6 +324,67 @@ def sample_pyramid():
         "vertices": mesh.vertices.tolist(),
         "faces": mesh.faces.tolist()
     })
+
+
+@app.post("/api/model/layflat")
+def layflat_model():
+    """Orient currently loaded mesh so its largest planar face sits flat on spoilboard bed (Z=0)."""
+    global current_loaded_mesh, current_mesh_metadata
+    if current_loaded_mesh is None:
+        return jsonify({"error": "No mesh loaded to lay flat."}), 400
+
+    try:
+        mesh = current_loaded_mesh.copy()
+        facets = mesh.facets
+        if len(facets) > 0:
+            facet_areas = [mesh.area_faces[facet].sum() for facet in facets]
+            best_facet_idx = int(np.argmax(facet_areas))
+            best_facet = facets[best_facet_idx]
+            normal = mesh.face_normals[best_facet].mean(axis=0)
+            norm_val = np.linalg.norm(normal)
+            if norm_val > 1e-6:
+                normal = normal / norm_val
+            else:
+                normal = np.array([0.0, 0.0, -1.0])
+        else:
+            largest_face_idx = int(np.argmax(mesh.area_faces))
+            normal = mesh.face_normals[largest_face_idx]
+            norm_val = np.linalg.norm(normal)
+            if norm_val > 1e-6:
+                normal = normal / norm_val
+            else:
+                normal = np.array([0.0, 0.0, -1.0])
+
+        # Target normal facing downward onto bed: [0, 0, -1]
+        target_normal = np.array([0.0, 0.0, -1.0])
+        # If normal is not already downward, align it
+        if np.dot(normal, target_normal) < 0.9999:
+            rot_mat = trimesh.geometry.align_vectors(normal, target_normal)
+            mesh.apply_transform(rot_mat)
+
+        # Re-center at XY (0, 0) and bottom at Z=0
+        mesh.apply_translation([-mesh.centroid[0], -mesh.centroid[1], -mesh.bounds[0][2]])
+
+        current_loaded_mesh = mesh
+        current_mesh_metadata["width"] = float(mesh.extents[0])
+        current_mesh_metadata["length"] = float(mesh.extents[1])
+        current_mesh_metadata["height"] = float(mesh.extents[2])
+
+        preview_mesh = mesh
+        if len(preview_mesh.faces) > 20000:
+            try:
+                preview_mesh = preview_mesh.simplify_quadric_decimation(20000)
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": True,
+            "metadata": current_mesh_metadata,
+            "vertices": preview_mesh.vertices.tolist(),
+            "faces": preview_mesh.faces.tolist()
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Failed to lay model flat: {exc}"}), 500
 
 
 @app.get("/api/gcode/text")
