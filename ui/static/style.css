@@ -375,6 +375,116 @@ input[type="range"][orient="vertical"] {
   white-space: nowrap;
 }
 
+.btn-accent {
+  background: #0284c7;
+  border-color: #0369a1;
+  font-weight: 600;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: #0369a1;
+}
+
+.model-badge {
+  background: #1e3a8a;
+  color: #93c5fd;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sim-speed-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(45, 45, 48, 0.85);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #444;
+}
+
+.sim-speed-label {
+  font-size: 11px;
+  color: #aaa;
+}
+
+.select-sim-speed {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+/* G-Code Modal */
+.gcode-modal {
+  position: absolute;
+  top: 60px;
+  bottom: 36px;
+  right: 80px;
+  width: 480px;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+
+.gcode-modal-header {
+  padding: 10px 14px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.gcode-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.gcode-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gcode-lines-badge {
+  font-size: 11px;
+  background: #333;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #888;
+}
+
+.gcode-modal-body {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  background: #141414;
+}
+
+.gcode-pre {
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4ade80;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* Status Bar */
 .app-statusbar {
   height: 24px;

@@ -1,10 +1,12 @@
-// CNC Milling Slicer — Interactive 3D WebGL Studio
+// CNC Milling Slicer — Subtractive Studio Version 1
 let scene, camera, renderer, controls;
-let bedGrid, stockMesh, partMeshGroup, toolpathLinesGroup;
+let bedGrid, stockMesh, partMeshGroup, toolpathLinesGroup, toolMeshGroup;
 let currentSlicingData = null;
-let currentModelType = "sample1";
+let currentModelType = "sample2";
 let isSimulating = false;
-let simTimer = null;
+let simIndex = 0;
+let simPoints = [];
+let simInterval = null;
 
 // Initialize Three.js 3D Viewport
 function initViewport() {
@@ -15,10 +17,10 @@ function initViewport() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x121214);
 
-  // Perspective camera
+  // Perspective camera (Z is UP in CNC coordinates)
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
   camera.position.set(160, -220, 180);
-  camera.up.set(0, 0, 1); // Z is UP in CNC machine coordinates!
+  camera.up.set(0, 0, 1);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(width, height);
@@ -52,14 +54,22 @@ function initViewport() {
   scene.add(partMeshGroup);
   scene.add(toolpathLinesGroup);
 
-  // Initial default stock block
-  updateStockMesh(100, 80, 20, 50, 50);
+  // 3D Cutting Tool Mesh
+  toolMeshGroup = createToolMesh(3.175);
+  scene.add(toolMeshGroup);
+  toolMeshGroup.visible = false;
 
-  // Load default Sample 1 model
-  loadSample1Model();
+  // Initial default stock block (60x60x30 mm for sample pyramid)
+  updateStockMesh(60, 60, 30, 50, 50);
+
+  // Load default sample 3D pyramid
+  loadSamplePyramid();
 
   // Resize handler
   window.addEventListener("resize", onWindowResize);
+
+  // Drag-and-drop STL handler on canvas
+  setupDragAndDrop(container);
 
   animate();
 }
@@ -75,8 +85,6 @@ function createBedGrid(w, l) {
   if (bedGrid) scene.remove(bedGrid);
 
   const gridGroup = new THREE.Group();
-
-  // Base Spoilboard Plate
   const plateGeo = new THREE.PlaneGeometry(w, l);
   const plateMat = new THREE.MeshStandardMaterial({
     color: 0x1e1e22,
@@ -87,15 +95,12 @@ function createBedGrid(w, l) {
   plate.position.set(w / 2, l / 2, -0.2);
   gridGroup.add(plate);
 
-  // Grid lines
   const grid = new THREE.GridHelper(w, 40, 0x44444c, 0x2a2a30);
   grid.rotation.x = Math.PI / 2;
   grid.position.set(w / 2, l / 2, 0);
   gridGroup.add(grid);
 
-  // Machine Axes helper
   const axes = new THREE.AxesHelper(50);
-  axes.position.set(0, 0, 0);
   gridGroup.add(axes);
 
   bedGrid = gridGroup;
@@ -107,7 +112,7 @@ function updateStockMesh(w, l, t, x0 = 50, y0 = 50) {
 
   const geo = new THREE.BoxGeometry(w, l, t);
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x10b981, // Emerald green
+    color: 0x10b981, // Translucent emerald
     transparent: true,
     opacity: 0.28,
     roughness: 0.3,
@@ -117,10 +122,8 @@ function updateStockMesh(w, l, t, x0 = 50, y0 = 50) {
   });
 
   stockMesh = new THREE.Mesh(geo, mat);
-  // Position so bottom sits at Z=0 (spoilboard)
   stockMesh.position.set(x0 + w / 2, y0 + l / 2, t / 2);
 
-  // Add subtle edge wireframe
   const edges = new THREE.EdgesGeometry(geo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
   const wire = new THREE.LineSegments(edges, lineMat);
@@ -130,141 +133,186 @@ function updateStockMesh(w, l, t, x0 = 50, y0 = 50) {
   controls.target.set(x0 + w / 2, y0 + l / 2, t / 2);
 }
 
-// Sample 1: Rectangular block with circular hole & oblong slot
-function loadSample1Model() {
-  currentModelType = "sample1";
+// 3D Cutting Tool representation (Spindle collet + Carbide endmill)
+function createToolMesh(diameter = 3.175) {
+  const group = new THREE.Group();
+
+  // Carbide endmill shaft (silver cylinder)
+  const bitGeo = new THREE.CylinderGeometry(diameter / 2, diameter / 2, 25, 16);
+  bitGeo.rotateX(Math.PI / 2);
+  const bitMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, metalness: 0.9, roughness: 0.2 });
+  const bit = new THREE.Mesh(bitGeo, bitMat);
+  bit.position.set(0, 0, 12.5);
+  group.add(bit);
+
+  // ER11 Spindle Collet (black cone)
+  const colletGeo = new THREE.CylinderGeometry(10, 5, 20, 16);
+  colletGeo.rotateX(Math.PI / 2);
+  const colletMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.8, roughness: 0.5 });
+  const collet = new THREE.Mesh(colletGeo, colletMat);
+  collet.position.set(0, 0, 35);
+  group.add(collet);
+
+  return group;
+}
+
+// Load 3D Mesh into Scene
+function display3DMesh(vertices, faces, metadata) {
   while (partMeshGroup.children.length > 0) {
     partMeshGroup.remove(partMeshGroup.children[0]);
   }
 
+  const geometry = new THREE.BufferGeometry();
+  const positions = [];
+  const indices = [];
+
+  for (let i = 0; i < vertices.length; i++) {
+    positions.push(vertices[i][0], vertices[i][1], vertices[i][2]);
+  }
+  for (let i = 0; i < faces.length; i++) {
+    indices.push(faces[i][0], faces[i][1], faces[i][2]);
+  }
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b, // Amber gold part
+    roughness: 0.35,
+    metalness: 0.65
+  });
+
+  const mesh = new THREE.Mesh(geometry, mat);
+
+  // Position model centered on stock
   const stockW = parseFloat(document.getElementById("stock-w").value);
   const stockL = parseFloat(document.getElementById("stock-l").value);
-  const stockT = parseFloat(document.getElementById("stock-t").value);
+  mesh.position.set(50 + stockW / 2, 50 + stockL / 2, 0);
 
-  // Part body inside stock (with 5mm margins)
-  const partW = stockW - 10;
-  const partL = stockL - 10;
-  const partT = stockT - 2;
+  partMeshGroup.add(mesh);
 
-  const shape = new THREE.Shape();
-  shape.moveTo(0, 0);
-  shape.lineTo(partW, 0);
-  shape.lineTo(partW, partL);
-  shape.lineTo(0, partL);
-  shape.lineTo(0, 0);
+  // Update UI metadata panel
+  document.getElementById("model-name-badge").textContent = metadata.name || "3D Model";
+  document.getElementById("model-dim-x").value = metadata.width.toFixed(1);
+  document.getElementById("model-dim-y").value = metadata.length.toFixed(1);
+  document.getElementById("model-dim-z").value = metadata.height.toFixed(1);
+  document.getElementById("model-poly-count").value = metadata.faces_count || faces.length;
 
-  // Circular hole cutout (hole 1)
-  const holePath = new THREE.Path();
-  holePath.absarc(25, partL / 2, 8, 0, Math.PI * 2, true);
-  shape.holes.push(holePath);
-
-  // Oblong slot cutout (hole 2)
-  const slotPath = new THREE.Path();
-  const sx = partW - 35, sy = partL / 2, sw = 20, sh = 10;
-  slotPath.moveTo(sx, sy - sh / 2);
-  slotPath.lineTo(sx + sw, sy - sh / 2);
-  slotPath.absarc(sx + sw, sy, sh / 2, -Math.PI / 2, Math.PI / 2, false);
-  slotPath.lineTo(sx, sy + sh / 2);
-  slotPath.absarc(sx, sy, sh / 2, Math.PI / 2, -Math.PI / 2, false);
-  shape.holes.push(slotPath);
-
-  const extrudeSettings = { depth: partT, bevelEnabled: false };
-  const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x93c5fd, // Light steel blue
-    roughness: 0.4,
-    metalness: 0.6
-  });
-
-  const partMesh = new THREE.Mesh(geo, mat);
-  partMesh.position.set(55, 55, 0);
-  partMeshGroup.add(partMesh);
-
-  document.getElementById("status-text").textContent = "Sample 1 loaded: Solid block with circular through-hole and oblong slot.";
+  document.getElementById("status-text").textContent = `Loaded 3D Model: ${metadata.name} (${metadata.width.toFixed(1)} x ${metadata.length.toFixed(1)} x ${metadata.height.toFixed(1)} mm)`;
 }
 
-// Sample 2: 3-Tier Stepped Pyramid from solid billet
-function loadSample2Model() {
+// Load Sample 2 (Stepped Pyramid 3D model)
+async function loadSamplePyramid() {
   currentModelType = "sample2";
-  while (partMeshGroup.children.length > 0) {
-    partMeshGroup.remove(partMeshGroup.children[0]);
+  try {
+    const res = await fetch("/api/model/sample_pyramid");
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById("stock-w").value = 60;
+      document.getElementById("stock-l").value = 60;
+      document.getElementById("stock-t").value = 30;
+      updateStockMesh(60, 60, 30, 50, 50);
+      display3DMesh(data.vertices, data.faces, data.metadata);
+    }
+  } catch (err) {
+    console.error("Failed to load sample pyramid:", err);
   }
-
-  const stockW = 60, stockL = 60, stockT = 30;
-  document.getElementById("stock-w").value = stockW;
-  document.getElementById("stock-l").value = stockL;
-  document.getElementById("stock-t").value = stockT;
-  updateStockMesh(stockW, stockL, stockT, 50, 50);
-
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xf59e0b, // Amber gold
-    roughness: 0.3,
-    metalness: 0.7
-  });
-
-  // Base tier 3: 60x60x10
-  const b3 = new THREE.Mesh(new THREE.BoxGeometry(60, 60, 10), mat);
-  b3.position.set(80, 80, 5);
-  partMeshGroup.add(b3);
-
-  // Mid tier 2: 40x40x10
-  const b2 = new THREE.Mesh(new THREE.BoxGeometry(40, 40, 10), mat);
-  b2.position.set(80, 80, 15);
-  partMeshGroup.add(b2);
-
-  // Top tier 1: 20x20x10
-  const b1 = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 10), mat);
-  b1.position.set(80, 80, 25);
-  partMeshGroup.add(b1);
-
-  document.getElementById("status-text").textContent = "Sample 2 loaded: 3-Tier Stepped Pyramid to be carved out of solid raw billet.";
 }
 
-// Trigger LiDAR Bed Sweep Simulation
+// Upload & Insert Arbitrary STL / OBJ
+async function uploadStlFile(file) {
+  currentModelType = "custom_stl";
+  const formData = new FormData();
+  formData.append("file", file);
+
+  document.getElementById("status-text").textContent = `Parsing 3D Model: ${file.name}...`;
+
+  try {
+    const res = await fetch("/api/model/upload_stl", {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      alert("Error loading 3D model: " + data.error);
+      return;
+    }
+
+    // Auto-fit stock around model with 10mm XY margin and 2mm Z top allowance
+    const autoW = Math.ceil(data.metadata.width + 20);
+    const autoL = Math.ceil(data.metadata.length + 20);
+    const autoT = Math.ceil(data.metadata.height + 2);
+
+    document.getElementById("stock-w").value = autoW;
+    document.getElementById("stock-l").value = autoL;
+    document.getElementById("stock-t").value = autoT;
+
+    updateStockMesh(autoW, autoL, autoT, 50, 50);
+    display3DMesh(data.vertices, data.faces, data.metadata);
+
+  } catch (err) {
+    console.error("Upload error:", err);
+    alert("Upload failed. See console.");
+  }
+}
+
+function setupDragAndDrop(container) {
+  container.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    container.style.border = "2px dashed #007acc";
+  });
+  container.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    container.style.border = "none";
+  });
+  container.addEventListener("drop", (e) => {
+    e.preventDefault();
+    container.style.border = "none";
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      uploadStlFile(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+// Trigger Toolhead LiDAR Auto-Scan
 async function autoScanBedLidar() {
   const badge = document.getElementById("lidar-status-badge");
   badge.textContent = "Scanning Bed...";
   badge.style.background = "#7e22ce";
 
-  document.getElementById("status-text").textContent = "Toolhead LiDAR sweeping bed at 3000 mm/min to discover stock boundary...";
+  document.getElementById("status-text").textContent = "Toolhead LiDAR sweeping machine bed to locate stock coordinates & surface flatness...";
 
-  // Call backend scan endpoint
   try {
     const res = await fetch("/api/lidar/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        bed_w: 400,
-        bed_l: 400,
-        stock_x: 60 + Math.random() * 40,
-        stock_y: 60 + Math.random() * 40,
-        stock_w: 120,
-        stock_l: 90,
-        stock_t: 22.5
+        bed_w: 400, bed_l: 400,
+        stock_x: 50, stock_y: 50,
+        stock_w: parseFloat(document.getElementById("stock-w").value),
+        stock_l: parseFloat(document.getElementById("stock-l").value),
+        stock_t: parseFloat(document.getElementById("stock-t").value)
       })
     });
     const data = await res.json();
 
     if (data.detected) {
-      document.getElementById("stock-w").value = data.width.toFixed(1);
-      document.getElementById("stock-l").value = data.length.toFixed(1);
-      document.getElementById("stock-t").value = data.thickness.toFixed(1);
       document.getElementById("stock-pos").value = `X: ${data.x_min.toFixed(1)}, Y: ${data.y_min.toFixed(1)}`;
       document.getElementById("surface-warp-val").textContent = `${data.max_deviation.toFixed(2)} mm (Auto-Leveled)`;
 
       updateStockMesh(data.width, data.length, data.thickness, data.x_min, data.y_min);
-
       badge.textContent = "Stock Located (Auto)";
       badge.style.background = "#065f46";
-      document.getElementById("status-text").textContent = `LiDAR Auto-Detection Succeeded: Found ${data.width.toFixed(1)} x ${data.length.toFixed(1)} x ${data.thickness.toFixed(1)} mm stock.`;
+      document.getElementById("status-text").textContent = `LiDAR Detection: Located ${data.width.toFixed(1)} x ${data.length.toFixed(1)} x ${data.thickness.toFixed(1)} mm stock. Auto-leveling active.`;
     }
   } catch (err) {
     console.error("Scan error:", err);
-    badge.textContent = "Scan Offline (Mock)";
   }
 }
 
-// Execute Slicing on Backend
+// Slicing Core
 async function sliceCurrentModel() {
   const sliceBtn = document.getElementById("btn-slice");
   sliceBtn.disabled = true;
@@ -298,21 +346,22 @@ async function sliceCurrentModel() {
     document.getElementById("stat-rapid-dist").textContent = `${data.rapid_distance_mm.toFixed(0)} mm`;
     document.getElementById("stat-est-time").textContent = `${data.estimated_minutes.toFixed(1)} min`;
 
-    // Configure vertical layer scrubber
+    // Configure vertical layer slider
     const slider = document.getElementById("layer-slider");
     slider.min = "0";
     slider.max = String(data.layer_count);
     slider.value = String(data.layer_count);
     document.getElementById("current-layer-label").textContent = `1 - ${data.layer_count}`;
 
-    // Render toolpaths in 3D
+    // Render toolpaths
     renderToolpaths(data.layers);
 
+    document.getElementById("btn-view-gcode").disabled = false;
     document.getElementById("btn-export-gcode").disabled = false;
-    document.getElementById("status-text").textContent = `Slicing complete: ${data.layer_count} depth passes generated. Scrub slider to inspect layers.`;
+    document.getElementById("status-text").textContent = `Slicing complete: ${data.layer_count} layers computed. Scrub layer slider or click ▶ to simulate tool.`;
   } catch (err) {
     console.error("Slicing failed:", err);
-    document.getElementById("status-text").textContent = "Slicing failed. Check console log.";
+    document.getElementById("status-text").textContent = "Slicing failed. Check console.";
   } finally {
     sliceBtn.disabled = false;
     sliceBtn.textContent = "🔪 Slice Stock";
@@ -369,7 +418,7 @@ function renderToolpaths(layers, maxVisibleLayerIndex = 9999) {
   });
 }
 
-// Handle vertical layer slider scrubbing
+// Vertical Layer Slider Scrubbing
 function onLayerSliderInput() {
   if (!currentSlicingData) return;
   const val = parseInt(document.getElementById("layer-slider").value);
@@ -386,8 +435,88 @@ function onLayerSliderInput() {
   }
 }
 
-// Export G-Code
-async function exportGCode() {
+// 3D Cutting Simulation Loop
+function toggleSimulation() {
+  if (!currentSlicingData || currentSlicingData.layers.length === 0) return;
+
+  const simBtn = document.getElementById("btn-play-sim");
+
+  if (isSimulating) {
+    // Stop simulation
+    clearInterval(simInterval);
+    isSimulating = false;
+    simBtn.textContent = "▶";
+    toolMeshGroup.visible = false;
+    document.getElementById("status-text").textContent = "Simulation paused.";
+    return;
+  }
+
+  // Extract all points for currently selected layer (or all layers)
+  const layerVal = parseInt(document.getElementById("layer-slider").value);
+  const layersToSim = (layerVal === 0 || layerVal === currentSlicingData.layer_count)
+    ? currentSlicingData.layers
+    : [currentSlicingData.layers[layerVal - 1]];
+
+  simPoints = [];
+  layersToSim.forEach(lyr => {
+    lyr.segments.forEach(seg => {
+      seg.points.forEach(pt => simPoints.push(pt));
+    });
+  });
+
+  if (simPoints.length === 0) return;
+
+  isSimulating = true;
+  simIndex = 0;
+  simBtn.textContent = "⏸";
+  toolMeshGroup.visible = true;
+
+  const speedMult = parseFloat(document.getElementById("sim-speed-select").value) || 5;
+  const intervalMs = Math.max(10, Math.floor(100 / speedMult));
+
+  simInterval = setInterval(() => {
+    if (simIndex >= simPoints.length) {
+      clearInterval(simInterval);
+      isSimulating = false;
+      simBtn.textContent = "▶";
+      document.getElementById("status-text").textContent = "Toolpath simulation finished.";
+      return;
+    }
+
+    const pt = simPoints[simIndex];
+    toolMeshGroup.position.set(pt.x, pt.y, pt.z);
+    document.getElementById("status-text").textContent = `Simulating: [${pt.move_type.toUpperCase()}] X:${pt.x.toFixed(2)} Y:${pt.y.toFixed(2)} Z:${pt.z.toFixed(2)} mm`;
+    document.getElementById("layer-z-val").textContent = `Z: ${pt.z.toFixed(2)}mm`;
+
+    simIndex += Math.ceil(speedMult / 5);
+  }, intervalMs);
+}
+
+// G-Code View & Export
+async function viewGCode() {
+  try {
+    const res = await fetch("/api/gcode/text");
+    const data = await res.json();
+    document.getElementById("gcode-display-text").textContent = data.gcode;
+    document.getElementById("gcode-lines-count").textContent = `${data.lines} lines`;
+    document.getElementById("gcode-modal").style.display = "flex";
+  } catch (err) {
+    console.error("GCode view error:", err);
+  }
+}
+
+function copyGCodeToClipboard() {
+  const text = document.getElementById("gcode-display-text").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    alert("G-Code copied to clipboard!");
+  });
+}
+
+function closeGCodeModal() {
+  document.getElementById("gcode-modal").style.display = "none";
+}
+
+function exportGCodeFile() {
   if (!currentSlicingData) return;
   window.location.href = "/api/gcode/download";
 }
@@ -412,25 +541,41 @@ function setCameraView(view) {
   }
 }
 
-// Animation loop
+// Render loop
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
   renderer.render(scene, camera);
 }
 
-// Bind UI Events on Load
+// Bind UI Events
 window.addEventListener("DOMContentLoaded", () => {
   initViewport();
 
+  // Model & LiDAR actions
+  const fileInput = document.getElementById("stl-file-input");
+  document.getElementById("btn-upload-stl").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) {
+      uploadStlFile(e.target.files[0]);
+    }
+  });
+
   document.getElementById("btn-scan-lidar").addEventListener("click", autoScanBedLidar);
-  document.getElementById("btn-load-sample1").addEventListener("click", loadSample1Model);
-  document.getElementById("btn-load-sample2").addEventListener("click", loadSample2Model);
+  document.getElementById("btn-load-sample2").addEventListener("click", loadSamplePyramid);
   document.getElementById("btn-slice").addEventListener("click", sliceCurrentModel);
-  document.getElementById("btn-export-gcode").addEventListener("click", exportGCode);
 
+  // G-Code actions
+  document.getElementById("btn-view-gcode").addEventListener("click", viewGCode);
+  document.getElementById("btn-copy-gcode").addEventListener("click", copyGCodeToClipboard);
+  document.getElementById("btn-close-gcode").addEventListener("click", closeGCodeModal);
+  document.getElementById("btn-export-gcode").addEventListener("click", exportGCodeFile);
+
+  // Layer scrubber & Simulation
   document.getElementById("layer-slider").addEventListener("input", onLayerSliderInput);
+  document.getElementById("btn-play-sim").addEventListener("click", toggleSimulation);
 
+  // Camera presets
   document.getElementById("btn-view-top").addEventListener("click", () => setCameraView("top"));
   document.getElementById("btn-view-front").addEventListener("click", () => setCameraView("front"));
   document.getElementById("btn-view-iso").addEventListener("click", () => setCameraView("iso"));

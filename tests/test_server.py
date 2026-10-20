@@ -51,6 +51,31 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertIn(b"M3 S16000", res.data)
         self.assertIn(b"M30", res.data)
 
+    def test_sample_pyramid_and_gcode_text(self):
+        res = self.client.get("/api/model/sample_pyramid")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertAlmostEqual(data["metadata"]["width"], 60.0, delta=1.0)
+
+        # Slice this 3D model
+        slice_res = self.client.post("/api/slice", data=json.dumps({
+            "model_type": "custom_stl",
+            "stock_w": 80, "stock_l": 80, "stock_t": 35,
+            "stepdown": 3.0, "stepover": 0.45, "tool_d": 3.175
+        }), content_type="application/json")
+        self.assertEqual(slice_res.status_code, 200)
+        slice_data = slice_res.get_json()
+        self.assertTrue(slice_data["success"])
+        self.assertGreater(slice_data["layer_count"], 5)
+
+        # Inspect G-code text
+        gcode_res = self.client.get("/api/gcode/text")
+        self.assertEqual(gcode_res.status_code, 200)
+        gcode_data = gcode_res.get_json()
+        self.assertIn("G21", gcode_data["gcode"])
+        self.assertGreater(gcode_data["lines"], 20)
+
 
 if __name__ == "__main__":
     unittest.main()

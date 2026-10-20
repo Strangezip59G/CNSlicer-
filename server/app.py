@@ -24,9 +24,11 @@ STATIC_DIR = UI_DIR / "static"
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), template_folder=str(UI_DIR))
 
-# Global state for latest sliced job
+# Global state for latest sliced job and loaded 3D model
 latest_slicing_result = None
 latest_stock = None
+current_loaded_mesh: trimesh.Trimesh | None = None
+current_mesh_metadata: dict = {}
 
 
 @app.get("/")
@@ -120,7 +122,13 @@ def slice_model():
 
     slicer = SubtractiveSlicer(stock=stock, tool=tool)
 
-    if model_type == "sample2":
+    if model_type == "custom_stl" and current_loaded_mesh is not None:
+        mesh = current_loaded_mesh.copy()
+        target_cx = 50.0 + stock_w / 2.0
+        target_cy = 50.0 + stock_l / 2.0
+        mesh.apply_translation([target_cx, target_cy, 0.0])
+        result = slicer.slice_3d_mesh(mesh=mesh, z_bottom=0.0, custom_stepdown=stepdown)
+    elif model_type == "sample2":
         # Sample 2: 3-Tier Stepped Pyramid from solid stock
         b1 = trimesh.creation.box(extents=[20, 20, 10])
         b1.apply_translation([80, 80, 25])
@@ -178,6 +186,114 @@ def slice_model():
         "layers": layers_data
     })
 
+
+@app.post("/api/model/upload_stl")
+def upload_stl():
+    """Upload an arbitrary 3D model (.stl or .obj) to slice and simulate."""
+    global current_loaded_mesh, current_mesh_metadata
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"error": "Empty filename."}), 400
+
+    filename = f.filename.lower()
+    file_type = "stl" if filename.endswith(".stl") else "obj" if filename.endswith(".obj") else None
+    if not file_type:
+        return jsonify({"error": "Unsupported file format. Please upload .STL or .OBJ"}), 400
+
+    try:
+        data_bytes = f.read()
+        mesh = trimesh.load(io.BytesIO(data_bytes), file_type=file_type)
+
+        if isinstance(mesh, trimesh.Scene):
+            # Combine scene geometries into a single mesh
+            geoms = [g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)]
+            if not geoms:
+                return jsonify({"error": "The 3D model contains no mesh geometry."}), 400
+            mesh = trimesh.util.concatenate(geoms)
+
+        # Center mesh base on XY, and place bottom on Z=0
+        bounds = mesh.bounds
+        extents = mesh.extents
+        center = mesh.centroid
+
+        # Translate so bottom sits at Z=0
+        mesh.apply_translation([-center[0], -center[1], -bounds[0][2]])
+
+        current_loaded_mesh = mesh
+        current_mesh_metadata = {
+            "name": f.filename,
+            "width": float(extents[0]),
+            "length": float(extents[1]),
+            "height": float(extents[2]),
+            "vertices_count": len(mesh.vertices),
+            "faces_count": len(mesh.faces)
+        }
+
+        # Decimate / simplify preview vertices if mesh is huge (to keep WebGL responsive)
+        preview_mesh = mesh
+        if len(preview_mesh.faces) > 20000:
+            try:
+                preview_mesh = preview_mesh.simplify_quadric_decimation(20000)
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": True,
+            "metadata": current_mesh_metadata,
+            "vertices": preview_mesh.vertices.tolist(),
+            "faces": preview_mesh.faces.tolist()
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Failed to parse 3D model: {exc}"}), 400
+
+
+@app.get("/api/model/sample_pyramid")
+def sample_pyramid():
+    """Load the preset 3-Tier Stepped Pyramid STL model."""
+    global current_loaded_mesh, current_mesh_metadata
+    fixture_path = ROOT_DIR / "tests" / "fixtures" / "stepped_pyramid.stl"
+    if not fixture_path.exists():
+        return jsonify({"error": "Fixture not found"}), 404
+
+    mesh = trimesh.load(fixture_path, file_type="stl")
+    bounds = mesh.bounds
+    center = mesh.centroid
+    mesh.apply_translation([-center[0], -center[1], -bounds[0][2]])
+
+    current_loaded_mesh = mesh
+    current_mesh_metadata = {
+        "name": "stepped_pyramid.stl",
+        "width": float(mesh.extents[0]),
+        "length": float(mesh.extents[1]),
+        "height": float(mesh.extents[2]),
+        "vertices_count": len(mesh.vertices),
+        "faces_count": len(mesh.faces)
+    }
+
+    return jsonify({
+        "success": True,
+        "metadata": current_mesh_metadata,
+        "vertices": mesh.vertices.tolist(),
+        "faces": mesh.faces.tolist()
+    })
+
+
+@app.get("/api/gcode/text")
+def gcode_text():
+    """Return the generated G-code text with line count for in-app inspection."""
+    global latest_slicing_result
+    if latest_slicing_result is None:
+        return jsonify({"gcode": "; No toolpaths generated yet.\n; Load a 3D model and click Slice Stock.\n", "lines": 2})
+
+    gen = GCodeGenerator(dialect="grbl")
+    text = gen.generate(latest_slicing_result, spindle_rpm=16000, program_name="CNC_SLICER_JOB")
+    return jsonify({
+        "gcode": text,
+        "lines": len(text.splitlines())
+    })
 
 @app.get("/api/gcode/download")
 def download_gcode():

@@ -19,20 +19,24 @@
         <span class="brand-tag">Subtractive Studio</span>
       </div>
       <div class="header-actions">
+        <input type="file" id="stl-file-input" accept=".stl,.obj" style="display: none;">
+        <button id="btn-upload-stl" class="btn btn-accent">
+          <span class="icon">📁</span> Insert 3D Model (.STL)
+        </button>
         <button id="btn-scan-lidar" class="btn btn-lidar">
           <span class="icon">📡</span> Auto-Scan Bed (LiDAR)
         </button>
-        <button id="btn-load-sample1" class="btn btn-secondary">
-          <span class="icon">📐</span> Sample 1 (Pocket/Hole)
-        </button>
         <button id="btn-load-sample2" class="btn btn-secondary">
-          <span class="icon">🏛️</span> Sample 2 (3D Pyramid)
+          <span class="icon">🏛️</span> Sample Pyramid
         </button>
         <button id="btn-slice" class="btn btn-primary">
           <span class="icon">🔪</span> Slice Stock
         </button>
+        <button id="btn-view-gcode" class="btn btn-secondary" disabled>
+          <span class="icon">📜</span> View G-Code
+        </button>
         <button id="btn-export-gcode" class="btn btn-success" disabled>
-          <span class="icon">💾</span> Export G-Code
+          <span class="icon">💾</span> Download G-Code
         </button>
       </div>
     </header>
@@ -41,6 +45,33 @@
     <div class="workspace">
       <!-- Left Sidebar: Settings & Tool Library -->
       <aside class="sidebar-left">
+        <div class="panel">
+          <h3 class="panel-title">📦 Inserted 3D Model</h3>
+          <div class="control-group">
+            <div id="model-name-badge" class="model-badge">Sample Pyramid (3D)</div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Model X (mm)</label>
+              <input type="text" id="model-dim-x" value="60.0" readonly>
+            </div>
+            <div>
+              <label>Model Y (mm)</label>
+              <input type="text" id="model-dim-y" value="60.0" readonly>
+            </div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Model Z (mm)</label>
+              <input type="text" id="model-dim-z" value="30.0" readonly>
+            </div>
+            <div>
+              <label>Triangles</label>
+              <input type="text" id="model-poly-count" value="36" readonly>
+            </div>
+          </div>
+        </div>
+
         <div class="panel">
           <h3 class="panel-title">📡 Toolhead LiDAR & Stock</h3>
           <div class="control-group">
@@ -148,6 +179,15 @@
           <button id="btn-view-iso" class="btn-tool">Isometric</button>
           <button id="btn-view-front" class="btn-tool">Front</button>
           <button id="btn-reset-cam" class="btn-tool">Reset</button>
+          <div class="sim-speed-wrapper">
+            <span class="sim-speed-label">Sim Speed:</span>
+            <select id="sim-speed-select" class="select-sim-speed">
+              <option value="1">1x</option>
+              <option value="5" selected>5x</option>
+              <option value="20">20x</option>
+              <option value="50">50x</option>
+            </select>
+          </div>
         </div>
       </main>
 
@@ -161,10 +201,25 @@
           <input type="range" id="layer-slider" min="0" max="0" value="0" orient="vertical">
         </div>
         <div class="slider-footer">
-          <button id="btn-play-sim" class="btn-sim" title="Simulate tool movement">▶</button>
+          <button id="btn-play-sim" class="btn-sim" title="Simulate tool cutting movement">▶</button>
           <span id="layer-z-val" class="layer-z">Z: 0.00mm</span>
         </div>
       </aside>
+    </div>
+
+    <!-- G-Code Inspector Drawer/Modal -->
+    <div id="gcode-modal" class="gcode-modal" style="display: none;">
+      <div class="gcode-modal-header">
+        <span class="gcode-modal-title">📜 Generated Machine G-Code (GRBL / LinuxCNC)</span>
+        <div class="gcode-modal-actions">
+          <span id="gcode-lines-count" class="gcode-lines-badge">0 lines</span>
+          <button id="btn-copy-gcode" class="btn-tool">Copy</button>
+          <button id="btn-close-gcode" class="btn-tool">✕ Close</button>
+        </div>
+      </div>
+      <div class="gcode-modal-body">
+        <pre id="gcode-display-text" class="gcode-pre">; Slicing job not run yet.</pre>
+      </div>
     </div>
 
     <!-- Status Bar -->
