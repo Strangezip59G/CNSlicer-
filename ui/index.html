@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNC Milling Slicer — Subtractive Slicing Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Three.js and OrbitControls for 3D Viewport -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header Toolbar -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon">⚙️</span>
+        <span class="brand-title">CNC Milling Slicer</span>
+        <span class="brand-tag">Subtractive Studio</span>
+      </div>
+      <div class="header-actions">
+        <button id="btn-scan-lidar" class="btn btn-lidar">
+          <span class="icon">📡</span> Auto-Scan Bed (LiDAR)
+        </button>
+        <button id="btn-load-sample1" class="btn btn-secondary">
+          <span class="icon">📐</span> Sample 1 (Pocket/Hole)
+        </button>
+        <button id="btn-load-sample2" class="btn btn-secondary">
+          <span class="icon">🏛️</span> Sample 2 (3D Pyramid)
+        </button>
+        <button id="btn-slice" class="btn btn-primary">
+          <span class="icon">🔪</span> Slice Stock
+        </button>
+        <button id="btn-export-gcode" class="btn btn-success" disabled>
+          <span class="icon">💾</span> Export G-Code
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+      <!-- Left Sidebar: Settings & Tool Library -->
+      <aside class="sidebar-left">
+        <div class="panel">
+          <h3 class="panel-title">📡 Toolhead LiDAR & Stock</h3>
+          <div class="control-group">
+            <label>Stock Placement:</label>
+            <div class="lidar-status" id="lidar-status-badge">Auto-Detect Ready</div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Width X (mm)</label>
+              <input type="number" id="stock-w" value="100" min="10" max="600">
+            </div>
+            <div>
+              <label>Length Y (mm)</label>
+              <input type="number" id="stock-l" value="80" min="10" max="600">
+            </div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Thickness Z (mm)</label>
+              <input type="number" id="stock-t" value="20" min="2" max="150">
+            </div>
+            <div>
+              <label>Bed X0 / Y0</label>
+              <input type="text" id="stock-pos" value="X: 50, Y: 50" readonly>
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Surface Warp (LiDAR Mesh):</label>
+            <div class="metric-val" id="surface-warp-val">0.08 mm (Flat)</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">🛠️ Tool Library & Feeds</h3>
+          <div class="control-group">
+            <label>Cutting Bit:</label>
+            <select id="tool-select">
+              <option value="flat_1_8" selected>1/8" (3.175mm) Flat Endmill</option>
+              <option value="flat_1_4">1/4" (6.35mm) Flat Endmill</option>
+              <option value="flat_6mm">6.0mm Roughing Endmill</option>
+              <option value="v_bit_60">60° V-Carve Bit</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Stepdown (mm)</label>
+              <input type="number" id="cut-stepdown" value="1.0" step="0.2" min="0.1" max="10">
+            </div>
+            <div>
+              <label>Stepover (%)</label>
+              <input type="number" id="cut-stepover" value="45" min="10" max="90">
+            </div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Cut Feed (mm/m)</label>
+              <input type="number" id="feed-xy" value="1200" step="100">
+            </div>
+            <div>
+              <label>Plunge (mm/m)</label>
+              <input type="number" id="feed-z" value="300" step="50">
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Spindle Speed (RPM):</label>
+            <input type="number" id="spindle-rpm" value="16000" step="1000">
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">📊 Slicing Statistics</h3>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <span class="stat-label">Total Layers</span>
+              <span class="stat-val" id="stat-layers">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Cut Distance</span>
+              <span class="stat-val" id="stat-cut-dist">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Air Rapids</span>
+              <span class="stat-val" id="stat-rapid-dist">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Est. Machining Time</span>
+              <span class="stat-val highlight" id="stat-est-time">-</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center 3D Viewport -->
+      <main class="viewport-container" id="viewport-3d">
+        <!-- 3D Canvas will be injected here -->
+        <div class="viewport-overlay-info" id="overlay-info">
+          <div><span class="legend-box stock-legend"></span> Translucent Raw Stock</div>
+          <div><span class="legend-box part-legend"></span> Target Part (Design)</div>
+          <div><span class="legend-box cut-legend"></span> Cutting Feed (G1)</div>
+          <div><span class="legend-box rapid-legend"></span> Rapid Travel (G0)</div>
+        </div>
+
+        <div class="viewport-controls">
+          <button id="btn-view-top" class="btn-tool">Top View</button>
+          <button id="btn-view-iso" class="btn-tool">Isometric</button>
+          <button id="btn-view-front" class="btn-tool">Front</button>
+          <button id="btn-reset-cam" class="btn-tool">Reset</button>
+        </div>
+      </main>
+
+      <!-- Right Vertical Slicer Slider (Cura/Prusa Style) -->
+      <aside class="sidebar-right">
+        <div class="slider-header">
+          <span class="slider-title">Pass (Layer)</span>
+          <span class="slider-badge" id="current-layer-label">All</span>
+        </div>
+        <div class="slider-track-container">
+          <input type="range" id="layer-slider" min="0" max="0" value="0" orient="vertical">
+        </div>
+        <div class="slider-footer">
+          <button id="btn-play-sim" class="btn-sim" title="Simulate tool movement">▶</button>
+          <span id="layer-z-val" class="layer-z">Z: 0.00mm</span>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="app-statusbar">
+      <span id="status-text">Ready. Place raw stock on bed or click Auto-Scan Bed (LiDAR).</span>
+      <span class="status-right">G-Code: GRBL 1.1 / LinuxCNC Compatible • Units: Metric (mm)</span>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
