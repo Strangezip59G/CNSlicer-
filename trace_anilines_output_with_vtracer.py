@@ -7,7 +7,10 @@ import re
 import time
 from pathlib import Path
 
-import cairosvg
+try:
+    import cairosvg
+except (ImportError, OSError):
+    cairosvg = None
 import cv2
 import numpy as np
 import vtracer
@@ -44,31 +47,36 @@ def main() -> int:
     svg = config.convert_pixels(rgba.tobytes(), width, height)
     trace_seconds = time.perf_counter() - start
     svg_path.write_text(svg, encoding="utf-8")
-    cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=str(preview_path),
-                     output_width=width, output_height=height, background_color="#ffffff")
+    if cairosvg:
+        try:
+            cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=str(preview_path),
+                             output_width=width, output_height=height, background_color="#ffffff")
+        except Exception:
+            pass
 
     path_count = len(re.findall(r"<path\b", svg))
     command_count = sum(len(re.findall(r"[MmLlHhVvCcSsQqTtAaZz]", d))
                         for d in re.findall(r'<path\b[^>]*\bd="([^"]*)"', svg))
     original = Image.fromarray(cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB))
-    vector = Image.open(preview_path).convert("RGB")
-    panel_w, panel_h = width, height
-    canvas = Image.new("RGB", (2 * panel_w + 56, panel_h + 100), "#f2f4f7")
-    draw = ImageDraw.Draw(canvas)
-    try:
-        title = ImageFont.truetype("segoeui.ttf", 19)
-        note = ImageFont.truetype("segoeui.ttf", 15)
-    except OSError:
-        title = note = ImageFont.load_default()
-    draw.text((20, 10), "AniLines raster → VTracer spline SVG", fill="#17212b", font=title)
-    for index, (label, image) in enumerate((("AniLines input", original), ("SVG preview", vector))):
-        x = 20 + index * (panel_w + 16)
-        draw.text((x, 40), label, fill="#17212b", font=note)
-        canvas.paste(image, (x, 66))
-    draw.text((20, panel_h + 74),
-              f"{path_count:,} paths · {command_count:,} path commands · {svg_path.stat().st_size:,} bytes · {trace_seconds:.2f}s",
-              fill="#34495e", font=note)
-    canvas.save(sheet_path)
+    if preview_path.exists():
+        vector = Image.open(preview_path).convert("RGB")
+        panel_w, panel_h = width, height
+        canvas = Image.new("RGB", (2 * panel_w + 56, panel_h + 100), "#f2f4f7")
+        draw = ImageDraw.Draw(canvas)
+        try:
+            title = ImageFont.truetype("segoeui.ttf", 19)
+            note = ImageFont.truetype("segoeui.ttf", 15)
+        except OSError:
+            title = note = ImageFont.load_default()
+        draw.text((20, 10), "AniLines raster → VTracer spline SVG", fill="#17212b", font=title)
+        for index, (label, image) in enumerate((("AniLines input", original), ("SVG preview", vector))):
+            x = 20 + index * (panel_w + 16)
+            draw.text((x, 40), label, fill="#17212b", font=note)
+            canvas.paste(image, (x, 66))
+        draw.text((20, panel_h + 74),
+                  f"{path_count:,} paths · {command_count:,} path commands · {svg_path.stat().st_size:,} bytes · {trace_seconds:.2f}s",
+                  fill="#34495e", font=note)
+        canvas.save(sheet_path)
     print(f"SVG:        {svg_path}")
     print(f"Preview:    {preview_path}")
     print(f"Comparison: {sheet_path}")
