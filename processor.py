@@ -803,16 +803,16 @@ def _emit_vtracer_expressions(candidates: list, nw: int, nh: int, target_w: int,
                     ordered.append(grouped[(region,cell)][depth])
             depth += 1
     facial_present = any(item[0] in facial_priority for item in candidates)
-    face_budget = min(budget, int(budget*.40)) if facial_present else 0
-    blush_limit = min(120, max(24, int(budget * 0.05)))
+    # This JSXGraph build assigns a dynamic per-frame budget. When the caller
+    # sets it to the candidate count, reserve every detected facial curve too.
+    face_budget = sum(1 for item in ordered if item[0] in facial_priority) if facial_present else 0
+    blush_limit = sum(1 for item in ordered if item[0] == "blush")
     used, region_used = Counter(), Counter()
     facial_selected = []
     blush_selected = 0
     for item in ordered:
         region = item[0]
-        if region not in facial_priority or len(facial_selected) >= face_budget:
-            continue
-        if region == "blush" and blush_selected >= blush_limit:
+        if region not in facial_priority:
             continue
         facial_selected.append(item)
         blush_selected += int(region == "blush")

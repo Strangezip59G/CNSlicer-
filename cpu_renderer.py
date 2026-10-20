@@ -67,7 +67,7 @@ def _render_geometry(task: tuple[str, int, int, int]) -> np.ndarray:
         py = round((top - 0) * sy)
         cv2.line(image, (0, py), (high_w - 1, py), (145, 145, 145), supersample, cv2.LINE_AA)
 
-    for expression in frame_data.get("expressions", []):
+    for expression in frame_data.get("curves", frame_data.get("expressions", [])):
         geometry = expression.get("geometry") or {}
         points = geometry.get("points") or []
         if len(points) < 2:
