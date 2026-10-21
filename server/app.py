@@ -18,6 +18,7 @@ from engine.slicer.stock import StockBlock, StockShape
 from engine.slicer.tool import CuttingTool, ToolType
 from engine.slicer.subtractive import SubtractiveSlicer
 from engine.slicer.analyzer import DesignAnalyzer
+from engine.slicer.machine import STANDARD_CNC_MACHINES, get_machine_profile, CNCProfile, BedLayoutType
 from engine.gcode.generator import GCodeGenerator
 from engine.gcode.validator import GCodeValidator
 
@@ -32,6 +33,7 @@ latest_slicing_result = None
 latest_stock = None
 current_loaded_mesh: trimesh.Trimesh | None = None
 current_mesh_metadata: dict = {}
+active_machine: CNCProfile = STANDARD_CNC_MACHINES["genmitsu_3018"]
 
 
 @app.get("/")
@@ -42,6 +44,44 @@ def index():
 @app.get("/static/<path:filename>")
 def static_files(filename):
     return send_from_directory(STATIC_DIR, filename)
+
+
+@app.get("/api/machines")
+def get_machines():
+    """Retrieve list of supported CNC milling machines with their bed envelopes & spindle limits."""
+    return jsonify({
+        "success": True,
+        "active_machine_id": active_machine.id,
+        "active_machine": active_machine.to_dict(),
+        "machines": [m.to_dict() for m in STANDARD_CNC_MACHINES.values()]
+    })
+
+
+@app.post("/api/machines/select")
+def select_machine():
+    """Select the active milling machine or update custom bed parameters."""
+    global active_machine
+    data = request.get_json(force=True) or {}
+    machine_id = data.get("machine_id", "genmitsu_3018")
+
+    if machine_id == "custom_mill" and ("bed_width_x" in data or "bed_length_y" in data):
+        custom = STANDARD_CNC_MACHINES["custom_mill"]
+        if "bed_width_x" in data:
+            custom.bed_width_x = float(data["bed_width_x"])
+        if "bed_length_y" in data:
+            custom.bed_length_y = float(data["bed_length_y"])
+        if "max_z_travel" in data:
+            custom.max_z_travel = float(data["max_z_travel"])
+        if "spindle_max_rpm" in data:
+            custom.spindle_max_rpm = int(data["spindle_max_rpm"])
+        active_machine = custom
+    else:
+        active_machine = get_machine_profile(machine_id)
+
+    return jsonify({
+        "success": True,
+        "active_machine": active_machine.to_dict()
+    })
 
 
 @app.post("/api/lidar/scan")
@@ -100,6 +140,11 @@ def slice_model():
     """Execute subtractive slicing: Stock(Z) - Part(Z) down every Z layer."""
     global latest_slicing_result, latest_stock
     data = request.get_json(force=True) or {}
+
+    # Machine profile selection if provided
+    machine_id = data.get("machine_id")
+    if machine_id:
+        active_machine = get_machine_profile(machine_id)
 
     model_type = data.get("model_type", "sample1")
     stock_shape = str(data.get("stock_shape", "box")).lower()
@@ -552,8 +597,13 @@ def gcode_text():
     if latest_slicing_result is None:
         return jsonify({"gcode": "; No toolpaths generated yet.\n; Load a 3D model and click Slice Stock.\n", "lines": 2})
 
-    gen = GCodeGenerator(dialect="grbl")
-    text = gen.generate(latest_slicing_result, spindle_rpm=16000, program_name="CNC_SLICER_JOB")
+    dialect = active_machine.controller_dialect
+    gen = GCodeGenerator(dialect=dialect)
+    text = gen.generate(
+        latest_slicing_result,
+        spindle_rpm=min(16000, active_machine.spindle_max_rpm),
+        program_name=f"{active_machine.id.upper()}_JOB"
+    )
     return jsonify({
         "gcode": text,
         "lines": len(text.splitlines())
@@ -566,10 +616,20 @@ def verify_gcode():
     if latest_slicing_result is None:
         return jsonify({"error": "No toolpaths generated yet. Slice model first."}), 400
 
-    gen = GCodeGenerator(dialect="grbl")
-    text = gen.generate(latest_slicing_result, spindle_rpm=16000, program_name="CNC_SLICER_JOB")
+    dialect = active_machine.controller_dialect
+    gen = GCodeGenerator(dialect=dialect)
+    text = gen.generate(
+        latest_slicing_result,
+        spindle_rpm=min(16000, active_machine.spindle_max_rpm),
+        program_name=f"{active_machine.id.upper()}_JOB"
+    )
 
-    validator = GCodeValidator(bed_width=400.0, bed_length=400.0)
+    validator = GCodeValidator(
+        bed_width=active_machine.bed_width_x,
+        bed_length=active_machine.bed_length_y,
+        max_z_travel=active_machine.max_z_travel,
+        machine_name=active_machine.name
+    )
     report = validator.verify(text)
     return jsonify({
         "success": True,
@@ -584,15 +644,20 @@ def download_gcode():
     if latest_slicing_result is None:
         return "No job has been sliced yet.", 400
 
-    gen = GCodeGenerator(dialect="grbl")
-    gcode_text = gen.generate(latest_slicing_result, spindle_rpm=16000, program_name="CNC_SLICER_JOB")
+    dialect = active_machine.controller_dialect
+    gen = GCodeGenerator(dialect=dialect)
+    gcode_text = gen.generate(
+        latest_slicing_result,
+        spindle_rpm=min(16000, active_machine.spindle_max_rpm),
+        program_name=f"{active_machine.id.upper()}_JOB"
+    )
 
     mem = io.BytesIO(gcode_text.encode("utf-8"))
     return send_file(
         mem,
         mimetype="text/plain",
         as_attachment=True,
-        download_name="cnc_slicer_job.gcode"
+        download_name=f"{active_machine.id}_job.gcode"
     )
 
 

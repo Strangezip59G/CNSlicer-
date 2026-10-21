@@ -50,10 +50,17 @@ class GCodeVerificationReport:
 class GCodeValidator:
     """Virtual CNC controller simulator to parse, validate, and verify G-code for machine safety."""
 
-    def __init__(self, bed_width: float = 400.0, bed_length: float = 400.0, max_z_travel: float = 150.0):
+    def __init__(
+        self,
+        bed_width: float = 400.0,
+        bed_length: float = 400.0,
+        max_z_travel: float = 150.0,
+        machine_name: str = "Standard CNC"
+    ):
         self.bed_width = bed_width
         self.bed_length = bed_length
         self.max_z_travel = max_z_travel
+        self.machine_name = machine_name
 
     def verify(self, gcode_text: str) -> GCodeVerificationReport:
         lines = gcode_text.splitlines()
@@ -217,15 +224,20 @@ class GCodeValidator:
         else:
             passed_checks.append(f"Spoilboard bed integrity verified: minimum Z = {max(0.0, min_z):.2f} mm.")
 
+        if max_z > self.max_z_travel:
+            errors.append(f"Z travel limit exceeded: Tool reaches Z = {max_z:.1f} mm exceeding {self.machine_name} maximum clearance ({self.max_z_travel:.1f} mm)!")
+        else:
+            passed_checks.append(f"Z clearance verified: Tool travel (max Z = {max_z:.1f} mm) is within {self.machine_name} limit ({self.max_z_travel:.1f} mm).")
+
         half_w = self.bed_width / 2.0
         half_l = self.bed_length / 2.0
         is_within_centered = (-half_w <= min_x <= half_w) and (-half_w <= max_x <= half_w) and (-half_l <= min_y <= half_l) and (-half_l <= max_y <= half_l)
         is_within_corner = (0.0 <= min_x <= self.bed_width) and (0.0 <= max_x <= self.bed_width) and (0.0 <= min_y <= self.bed_length) and (0.0 <= max_y <= self.bed_length)
 
         if not (is_within_centered or is_within_corner):
-            warnings.append(f"Toolpaths exceed standard bed envelope (X:[{min_x:.1f}, {max_x:.1f}], Y:[{min_y:.1f}, {max_y:.1f}] mm).")
+            warnings.append(f"Toolpaths exceed {self.machine_name} bed envelope (X:[{min_x:.1f}, {max_x:.1f}], Y:[{min_y:.1f}, {max_y:.1f}] vs bed {self.bed_width:.0f} x {self.bed_length:.0f} mm).")
         else:
-            passed_checks.append(f"Machine envelope safe: Part sits within bed boundaries.")
+            passed_checks.append(f"Machine envelope safe: Part sits within {self.machine_name} bed boundaries ({self.bed_width:.0f} x {self.bed_length:.0f} mm).")
 
         if has_program_end:
             passed_checks.append("Program end (M30/M2) and spindle shutdown (M5) verified.")

@@ -48,7 +48,7 @@ class TestServerEndpoints(unittest.TestCase):
         res = self.client.get("/api/gcode/download")
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"G21", res.data)
-        self.assertIn(b"M3 S16000", res.data)
+        self.assertIn(b"M3 S", res.data)
         self.assertIn(b"M30", res.data)
 
     def test_sample_pyramid_and_gcode_text(self):
@@ -155,6 +155,42 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertGreater(data["layer_count"], 5)
         self.assertGreater(data["cut_distance_mm"], 100.0)
+
+    def test_machines_list_and_select(self):
+        # 1. Fetch available machine profiles
+        res = self.client.get("/api/machines")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertGreaterEqual(len(data["machines"]), 8)
+        machine_ids = [m["id"] for m in data["machines"]]
+        self.assertIn("genmitsu_3018", machine_ids)
+        self.assertIn("shapeoko_4", machine_ids)
+        self.assertIn("nomad_3", machine_ids)
+        self.assertIn("bantam_desktop", machine_ids)
+
+        # 2. Select Shapeoko 4
+        sel_res = self.client.post("/api/machines/select", data=json.dumps({
+            "machine_id": "shapeoko_4"
+        }), content_type="application/json")
+        self.assertEqual(sel_res.status_code, 200)
+        sel_data = sel_res.get_json()
+        self.assertTrue(sel_data["success"])
+        self.assertEqual(sel_data["active_machine"]["name"], "Shapeoko 4 Standard")
+        self.assertEqual(sel_data["active_machine"]["bed_width_x"], 444.0)
+        self.assertEqual(sel_data["active_machine"]["bed_length_y"], 444.0)
+
+        # 3. Select custom machine
+        cust_res = self.client.post("/api/machines/select", data=json.dumps({
+            "machine_id": "custom_mill",
+            "bed_width_x": 500.0,
+            "bed_length_y": 500.0,
+            "max_z_travel": 120.0,
+            "spindle_max_rpm": 20000
+        }), content_type="application/json")
+        self.assertEqual(cust_res.status_code, 200)
+        cust_data = cust_res.get_json()
+        self.assertEqual(cust_data["active_machine"]["bed_width_x"], 500.0)
 
 
 if __name__ == "__main__":

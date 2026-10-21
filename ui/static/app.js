@@ -12,6 +12,12 @@ let simIndex = 0;
 let simPoints = [];
 let simInterval = null;
 
+// Machine Profile & Bed Layout State
+let currentMachine = null;
+let machinesList = [];
+let travelCageMesh = null;
+let bedFeaturesMesh = null;
+
 // Initialize Three.js 3D Viewport
 function initViewport() {
   const container = document.getElementById("viewport-3d");
@@ -69,9 +75,6 @@ function initViewport() {
   dirLight2.position.set(-200, -200, 100);
   scene.add(dirLight2);
 
-  // Spoilboard Bed (400 x 400 mm)
-  createBedGrid(400, 400);
-
   // Groups
   partMeshGroup = new THREE.Group();
   toolpathLinesGroup = new THREE.Group();
@@ -88,6 +91,9 @@ function initViewport() {
   scene.add(toolMeshGroup);
   toolMeshGroup.visible = false;
 
+  // Initialize CNC Machine Profiles & Bed Layout (3D Printer Slicer Style)
+  loadMachineProfiles();
+
   // Initial default stock block
   renderCurrentStockMesh();
 
@@ -100,8 +106,9 @@ function initViewport() {
   // Drag-and-drop STL handler on canvas
   setupDragAndDrop(container);
 
-  // Setup Creality tool listeners and analysis listeners
+  // Setup Creality tool listeners, machine listeners, and analysis listeners
   setupCrealityControls();
+  setupMachineControls();
   setupStockAndAnalysisControls();
 
   animate();
@@ -114,32 +121,440 @@ function onWindowResize() {
   renderer.setSize(container.clientWidth, container.clientHeight);
 }
 
-function createBedGrid(w, l) {
+// Generate crisp, branded 3D canvas texture for machine model nameplate badge
+function createMachineNameplateTexture(name, dims) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+
+  // Brushed dark metal background
+  ctx.fillStyle = "#16171b";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // High-tech neon cyan border
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+
+  // Decorative corner brackets
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(2, 2, 8, 8);
+  ctx.fillRect(canvas.width - 10, 2, 8, 8);
+  ctx.fillRect(2, canvas.height - 10, 8, 8);
+  ctx.fillRect(canvas.width - 10, canvas.height - 10, 8, 8);
+
+  // Model name
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 28px 'Segoe UI', Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(name.toUpperCase(), canvas.width / 2, 38);
+
+  // Dimension specs
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "18px Consolas, monospace";
+  ctx.fillText(dims, canvas.width / 2, 70);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
+// Build Authentic CNC Spoilboard Bed based on Machine Profile
+function createBedGrid(machine) {
   if (bedGrid) scene.remove(bedGrid);
 
+  const w = machine ? machine.bed_width_x : 300;
+  const l = machine ? machine.bed_length_y : 180;
+  const maxZ = machine ? machine.max_z_travel : 45;
+  const layout = machine ? machine.bed_layout : "aluminum_tslot";
+  const name = machine ? machine.name : "Genmitsu 3018-PROVer";
+
   const gridGroup = new THREE.Group();
+
+  // 1. Spoilboard Base Plate (Material finish adapts to machine style)
+  let plateMat;
+  if (layout === "mdf_hybrid_spoilboard") {
+    // Warm MDF fiberboard (Shapeoko 4)
+    plateMat = new THREE.MeshStandardMaterial({
+      color: 0x3d3024,
+      roughness: 0.9,
+      metalness: 0.05
+    });
+  } else if (layout === "precision_tooling") {
+    // Precision ground anodized tooling plate (Nomad 3, Bantam, Carvera)
+    plateMat = new THREE.MeshStandardMaterial({
+      color: 0x1f2329,
+      roughness: 0.35,
+      metalness: 0.8
+    });
+  } else if (layout === "wasteboard_ruler_grid") {
+    // Screen-printed composite wasteboard (X-Carve)
+    plateMat = new THREE.MeshStandardMaterial({
+      color: 0x2a241f,
+      roughness: 0.95,
+      metalness: 0.05
+    });
+  } else {
+    // Standard Extruded Aluminum T-Slot Plate (Genmitsu 3018, 4030)
+    plateMat = new THREE.MeshStandardMaterial({
+      color: 0x23272d,
+      roughness: 0.45,
+      metalness: 0.75
+    });
+  }
+
   const plateGeo = new THREE.PlaneGeometry(w, l);
-  const plateMat = new THREE.MeshStandardMaterial({
-    color: 0x1e1e22,
-    roughness: 0.9,
-    metalness: 0.1
-  });
   const plate = new THREE.Mesh(plateGeo, plateMat);
   plate.position.set(0, 0, -0.2);
   gridGroup.add(plate);
 
-  const grid = new THREE.GridHelper(w, 40, 0x44444c, 0x2a2a30);
+  // 2. Main Dimension Grid (10mm / 50mm subdivisions)
+  const gridDivs = Math.max(10, Math.floor(Math.max(w, l) / 10));
+  const grid = new THREE.GridHelper(Math.max(w, l), gridDivs, 0x475569, 0x27272a);
   grid.rotation.x = Math.PI / 2;
   grid.position.set(0, 0, 0);
   gridGroup.add(grid);
 
-  // Red=X, Green=Y, Blue=Z centered at bed origin (0, 0, 0)
-  const axes = new THREE.AxesHelper(60);
+  // 3. Bed-Specific Clamping Layout Features (T-Tracks, Fixture Holes, Dogholes)
+  const featuresGroup = new THREE.Group();
+  featuresGroup.name = "bedFeaturesGroup";
+
+  if (layout === "aluminum_tslot" || layout === "mdf_hybrid_spoilboard") {
+    // Parallel Aluminum T-Tracks along X
+    const pitch = (machine && machine.t_slot_pitch_mm) ? machine.t_slot_pitch_mm : 25;
+    const trackCount = Math.floor(l / pitch);
+    const startY = -(trackCount * pitch) / 2 + pitch / 2;
+
+    const trackLinePts = [];
+    const slotMeshGroup = new THREE.Group();
+
+    for (let i = 0; i < trackCount; i++) {
+      const y = startY + i * pitch;
+
+      // Dark recessed T-track channel
+      const slotGeo = new THREE.PlaneGeometry(w - 4, 6);
+      const slotMat = new THREE.MeshBasicMaterial({ color: 0x111215 });
+      const slotMesh = new THREE.Mesh(slotGeo, slotMat);
+      slotMesh.position.set(0, y, -0.1);
+      slotMeshGroup.add(slotMesh);
+
+      // Bright extruded metallic lips
+      trackLinePts.push(new THREE.Vector3(-w / 2 + 2, y - 3, 0.05));
+      trackLinePts.push(new THREE.Vector3(w / 2 - 2, y - 3, 0.05));
+      trackLinePts.push(new THREE.Vector3(-w / 2 + 2, y + 3, 0.05));
+      trackLinePts.push(new THREE.Vector3(w / 2 - 2, y + 3, 0.05));
+    }
+
+    featuresGroup.add(slotMeshGroup);
+
+    if (trackLinePts.length > 0) {
+      const trackLinesGeo = new THREE.BufferGeometry().setFromPoints(trackLinePts);
+      const trackLinesMat = new THREE.LineBasicMaterial({ color: 0x64748b, linewidth: 1.5 });
+      featuresGroup.add(new THREE.LineSegments(trackLinesGeo, trackLinesMat));
+    }
+  }
+
+  if (layout === "precision_tooling" || layout === "mdf_hybrid_spoilboard") {
+    // Matrix of M6 Threaded Fixture Holes / Dogholes
+    const holePitch = 25.0;
+    const cols = Math.floor(w / holePitch);
+    const rows = Math.floor(l / holePitch);
+    const startX = -(cols * holePitch) / 2 + holePitch / 2;
+    const startY = -(rows * holePitch) / 2 + holePitch / 2;
+
+    const holePts = [];
+    for (let c = 0; c < cols; c++) {
+      const hx = startX + c * holePitch;
+      for (let r = 0; r < rows; r++) {
+        const hy = startY + r * holePitch;
+        // Circle for M6 threaded insert
+        for (let a = 0; a <= 12; a++) {
+          const theta = (a / 12) * Math.PI * 2;
+          holePts.push(new THREE.Vector3(hx + 2.5 * Math.cos(theta), hy + 2.5 * Math.sin(theta), 0.05));
+        }
+      }
+    }
+    if (holePts.length > 0) {
+      const holeGeo = new THREE.BufferGeometry().setFromPoints(holePts);
+      const holeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, opacity: 0.45, transparent: true });
+      featuresGroup.add(new THREE.Line(holeGeo, holeMat));
+    }
+
+    if (layout === "precision_tooling") {
+      // Corner alignment bracket (L-fence) at bottom-left corner
+      const fenceGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-w / 2 + 10, -l / 2 + 10, 0.2),
+        new THREE.Vector3(-w / 2 + 50, -l / 2 + 10, 0.2),
+        new THREE.Vector3(-w / 2 + 10, -l / 2 + 10, 0.2),
+        new THREE.Vector3(-w / 2 + 10, -l / 2 + 50, 0.2)
+      ]);
+      const fenceMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2.5 });
+      featuresGroup.add(new THREE.LineSegments(fenceGeo, fenceMat));
+    }
+  }
+
+  gridGroup.add(featuresGroup);
+  bedFeaturesMesh = featuresGroup;
+
+  // 4. Machine Model Nameplate Badge on Front Lip
+  const badgeTex = createMachineNameplateTexture(name, `${w.toFixed(0)} × ${l.toFixed(0)} × ${maxZ.toFixed(0)} mm`);
+  const badgeGeo = new THREE.PlaneGeometry(Math.min(180, w * 0.75), 24);
+  const badgeMat = new THREE.MeshBasicMaterial({ map: badgeTex, transparent: true });
+  const badgeMesh = new THREE.Mesh(badgeGeo, badgeMat);
+  badgeMesh.position.set(0, -l / 2 - 16, 0.1);
+  gridGroup.add(badgeMesh);
+
+  // 5. Build Volume Travel Cage (Wireframe Box from Z=0 to Z=maxZ)
+  const cageGroup = new THREE.Group();
+  cageGroup.name = "travelCageGroup";
+
+  const cagePts = [
+    // Bottom perimeter (Z=0)
+    new THREE.Vector3(-w / 2, -l / 2, 0), new THREE.Vector3(w / 2, -l / 2, 0),
+    new THREE.Vector3(w / 2, -l / 2, 0), new THREE.Vector3(w / 2, l / 2, 0),
+    new THREE.Vector3(w / 2, l / 2, 0), new THREE.Vector3(-w / 2, l / 2, 0),
+    new THREE.Vector3(-w / 2, l / 2, 0), new THREE.Vector3(-w / 2, -l / 2, 0),
+
+    // Top perimeter (Z=maxZ)
+    new THREE.Vector3(-w / 2, -l / 2, maxZ), new THREE.Vector3(w / 2, -l / 2, maxZ),
+    new THREE.Vector3(w / 2, -l / 2, maxZ), new THREE.Vector3(w / 2, l / 2, maxZ),
+    new THREE.Vector3(w / 2, l / 2, maxZ), new THREE.Vector3(-w / 2, l / 2, maxZ),
+    new THREE.Vector3(-w / 2, l / 2, maxZ), new THREE.Vector3(-w / 2, -l / 2, maxZ),
+
+    // 4 Corner vertical pillars
+    new THREE.Vector3(-w / 2, -l / 2, 0), new THREE.Vector3(-w / 2, -l / 2, maxZ),
+    new THREE.Vector3(w / 2, -l / 2, 0), new THREE.Vector3(w / 2, -l / 2, maxZ),
+    new THREE.Vector3(w / 2, l / 2, 0), new THREE.Vector3(w / 2, l / 2, maxZ),
+    new THREE.Vector3(-w / 2, l / 2, 0), new THREE.Vector3(-w / 2, l / 2, maxZ)
+  ];
+
+  const cageGeo = new THREE.BufferGeometry().setFromPoints(cagePts);
+  const cageMat = new THREE.LineDashedMaterial({
+    color: 0x00f0ff,
+    linewidth: 1,
+    scale: 1,
+    dashSize: 4,
+    gapSize: 3,
+    transparent: true,
+    opacity: 0.35
+  });
+  const cageLines = new THREE.LineSegments(cageGeo, cageMat);
+  cageLines.computeLineDistances();
+  cageGroup.add(cageLines);
+
+  // Solid Corner Brackets (for high-tech CAD aesthetic)
+  const bracketPts = [];
+  const bLen = Math.min(15, Math.min(w, l) * 0.1);
+  const corners = [
+    [-w / 2, -l / 2], [w / 2, -l / 2],
+    [w / 2, l / 2], [-w / 2, l / 2]
+  ];
+  corners.forEach(([cx, cy]) => {
+    const sgnX = cx < 0 ? 1 : -1;
+    const sgnY = cy < 0 ? 1 : -1;
+    // Bottom brackets
+    bracketPts.push(new THREE.Vector3(cx, cy, 0), new THREE.Vector3(cx + sgnX * bLen, cy, 0));
+    bracketPts.push(new THREE.Vector3(cx, cy, 0), new THREE.Vector3(cx, cy + sgnY * bLen, 0));
+    bracketPts.push(new THREE.Vector3(cx, cy, 0), new THREE.Vector3(cx, cy, bLen));
+    // Top brackets
+    bracketPts.push(new THREE.Vector3(cx, cy, maxZ), new THREE.Vector3(cx + sgnX * bLen, cy, maxZ));
+    bracketPts.push(new THREE.Vector3(cx, cy, maxZ), new THREE.Vector3(cx, cy + sgnY * bLen, maxZ));
+    bracketPts.push(new THREE.Vector3(cx, cy, maxZ), new THREE.Vector3(cx, cy, maxZ - bLen));
+  });
+  const bracketGeo = new THREE.BufferGeometry().setFromPoints(bracketPts);
+  const bracketMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+  cageGroup.add(new THREE.LineSegments(bracketGeo, bracketMat));
+
+  gridGroup.add(cageGroup);
+  travelCageMesh = cageGroup;
+
+  // 6. Coordinate Axes Helper (Red=X, Green=Y, Blue=Z centered at (0, 0, 0))
+  const axesLen = Math.max(30, Math.min(60, w * 0.2));
+  const axes = new THREE.AxesHelper(axesLen);
   axes.renderOrder = 2;
   gridGroup.add(axes);
 
   bedGrid = gridGroup;
   scene.add(bedGrid);
+
+  // Sync checkboxes
+  const chkCage = document.getElementById("chk-show-travel-cage");
+  if (chkCage) travelCageMesh.visible = chkCage.checked;
+  const chkFeatures = document.getElementById("chk-show-bed-features");
+  if (chkFeatures) bedFeaturesMesh.visible = chkFeatures.checked;
+}
+
+// Load Machine Profiles from backend and populate UI
+async function loadMachineProfiles() {
+  try {
+    const res = await fetch("/api/machines");
+    const data = await res.json();
+    if (data.success) {
+      machinesList = data.machines;
+      currentMachine = data.active_machine || machinesList[0];
+
+      // Populate select dropdown
+      const sel = document.getElementById("machine-select");
+      if (sel) {
+        sel.innerHTML = "";
+        machinesList.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = `${m.name} (${m.envelope_label})`;
+          if (m.id === currentMachine.id) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      }
+
+      updateMachineUI(currentMachine);
+      createBedGrid(currentMachine);
+    }
+  } catch (err) {
+    console.error("Failed to load machine profiles:", err);
+    currentMachine = {
+      id: "genmitsu_3018",
+      name: "Genmitsu 3018-PROVer",
+      bed_width_x: 300,
+      bed_length_y: 180,
+      max_z_travel: 45,
+      bed_layout: "aluminum_tslot",
+      spindle_max_rpm: 10000
+    };
+    createBedGrid(currentMachine);
+  }
+}
+
+function updateMachineUI(machine) {
+  // Header badge
+  const headerName = document.getElementById("header-machine-name");
+  if (headerName) headerName.textContent = machine.name;
+  const headerBed = document.getElementById("header-machine-bed");
+  if (headerBed) headerBed.textContent = `${machine.bed_width_x.toFixed(0)}×${machine.bed_length_y.toFixed(0)} mm`;
+
+  // Sidebar stats
+  const statBed = document.getElementById("machine-stat-bed");
+  if (statBed) statBed.textContent = `${machine.bed_width_x.toFixed(0)} × ${machine.bed_length_y.toFixed(0)} mm`;
+  const statZ = document.getElementById("machine-stat-z");
+  if (statZ) statZ.textContent = `${machine.max_z_travel.toFixed(0)} mm`;
+  const statLayout = document.getElementById("machine-stat-layout");
+  if (statLayout) {
+    const layoutNames = {
+      aluminum_tslot: "Aluminum T-Slot",
+      mdf_hybrid_spoilboard: "MDF / T-Track Hybrid",
+      precision_tooling: "Precision Tooling Plate",
+      wasteboard_ruler_grid: "Wasteboard Metric Grid",
+      custom_bed: "Custom Spoilboard"
+    };
+    statLayout.textContent = layoutNames[machine.bed_layout] || machine.bed_layout;
+  }
+  const statSpindle = document.getElementById("machine-stat-spindle");
+  if (statSpindle) statSpindle.textContent = `${machine.spindle_max_rpm.toLocaleString()} RPM`;
+
+  // Speeds & Feeds input defaults
+  const spindleInput = document.getElementById("spindle-rpm");
+  if (spindleInput && parseInt(spindleInput.value) > machine.spindle_max_rpm) {
+    spindleInput.value = machine.spindle_max_rpm;
+  }
+
+  // Show/hide custom controls
+  const customControls = document.getElementById("custom-machine-controls");
+  if (customControls) {
+    customControls.style.display = machine.id === "custom_mill" ? "block" : "none";
+  }
+}
+
+async function onMachineSelectChanged() {
+  const sel = document.getElementById("machine-select");
+  const machineId = sel.value;
+
+  const customControls = document.getElementById("custom-machine-controls");
+  if (customControls) {
+    customControls.style.display = machineId === "custom_mill" ? "block" : "none";
+  }
+
+  try {
+    const res = await fetch("/api/machines/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ machine_id: machineId })
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentMachine = data.active_machine;
+      updateMachineUI(currentMachine);
+      createBedGrid(currentMachine);
+      setCameraView("iso");
+      document.getElementById("status-text").textContent = `Active Machine Profile: ${currentMachine.name} (${currentMachine.bed_width_x} × ${currentMachine.bed_length_y} × ${currentMachine.max_z_travel} mm). Bed layout updated.`;
+    }
+  } catch (err) {
+    console.error("Machine selection error:", err);
+  }
+}
+
+async function applyCustomBedDimensions() {
+  const w = parseFloat(document.getElementById("custom-bed-w").value || 400);
+  const l = parseFloat(document.getElementById("custom-bed-l").value || 400);
+  const z = parseFloat(document.getElementById("custom-bed-z").value || 100);
+  const rpm = parseInt(document.getElementById("custom-bed-rpm").value || 16000);
+
+  try {
+    const res = await fetch("/api/machines/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        machine_id: "custom_mill",
+        bed_width_x: w,
+        bed_length_y: l,
+        max_z_travel: z,
+        spindle_max_rpm: rpm
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentMachine = data.active_machine;
+      updateMachineUI(currentMachine);
+      createBedGrid(currentMachine);
+      setCameraView("iso");
+      document.getElementById("status-text").textContent = `Custom bed dimensions applied: ${w} × ${l} × ${z} mm.`;
+    }
+  } catch (err) {
+    console.error("Custom bed update error:", err);
+  }
+}
+
+function setupMachineControls() {
+  const machineSelect = document.getElementById("machine-select");
+  if (machineSelect) {
+    machineSelect.addEventListener("change", onMachineSelectChanged);
+  }
+
+  const btnApplyCustom = document.getElementById("btn-apply-custom-bed");
+  if (btnApplyCustom) {
+    btnApplyCustom.addEventListener("click", applyCustomBedDimensions);
+  }
+
+  const chkCage = document.getElementById("chk-show-travel-cage");
+  if (chkCage) {
+    chkCage.addEventListener("change", (e) => {
+      if (travelCageMesh) travelCageMesh.visible = e.target.checked;
+    });
+  }
+
+  const chkFeatures = document.getElementById("chk-show-bed-features");
+  if (chkFeatures) {
+    chkFeatures.addEventListener("change", (e) => {
+      if (bedFeaturesMesh) bedFeaturesMesh.visible = e.target.checked;
+    });
+  }
+
+  const headerBadge = document.getElementById("header-machine-badge");
+  if (headerBadge && machineSelect) {
+    headerBadge.addEventListener("click", () => {
+      machineSelect.focus();
+    });
+  }
 }
 
 // 3D Cutting Tool representation (Spindle collet + Carbide endmill)
@@ -955,8 +1370,8 @@ async function autoScanBedLidar() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        bed_w: 400,
-        bed_l: 400,
+        bed_w: currentMachine ? currentMachine.bed_width_x : 300,
+        bed_l: currentMachine ? currentMachine.bed_length_y : 180,
         stock_x: stockX,
         stock_y: stockY,
         stock_w: stockW,
@@ -992,6 +1407,7 @@ async function sliceCurrentModel() {
   try {
     const payload = {
       model_type: currentModelType,
+      machine_id: currentMachine ? currentMachine.id : "genmitsu_3018",
       stock_shape: document.getElementById("stock-shape").value,
       stock_w: parseFloat(document.getElementById("stock-w").value),
       stock_l: parseFloat(document.getElementById("stock-l").value),
@@ -1238,7 +1654,7 @@ function exportGCodeFile() {
   window.location.href = "/api/gcode/download";
 }
 
-// Camera Preset Views
+// Camera Preset Views (Dynamically framed to machine bed dimensions)
 function setCameraView(view) {
   const stockT = parseFloat(document.getElementById("stock-t").value || 30);
   let cx = 0;
@@ -1252,12 +1668,15 @@ function setCameraView(view) {
 
   controls.target.set(cx, cy, cz);
 
+  const span = currentMachine ? Math.max(currentMachine.bed_width_x, currentMachine.bed_length_y) : 300;
+  const dist = Math.max(160, span * 0.7);
+
   if (view === "top") {
-    camera.position.set(cx, cy, cz + 250);
+    camera.position.set(cx, cy, cz + dist * 1.3);
   } else if (view === "front") {
-    camera.position.set(cx, cy - 250, cz);
+    camera.position.set(cx, cy - dist * 1.3, cz + dist * 0.25);
   } else if (view === "iso") {
-    camera.position.set(cx + 140, cy - 180, cz + 140);
+    camera.position.set(cx + dist * 0.7, cy - dist * 0.9, cz + dist * 0.7);
   }
 }
 

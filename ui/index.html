@@ -18,6 +18,11 @@
         <span class="brand-icon">⚙️</span>
         <span class="brand-title">CNC Milling Slicer</span>
         <span class="brand-tag">Creality-Style CAM</span>
+        <div class="machine-header-badge" id="header-machine-badge" title="Active Milling Machine Profile">
+          <span class="machine-status-dot"></span>
+          <span id="header-machine-name">Genmitsu 3018-PROVer</span>
+          <span class="machine-bed-pill" id="header-machine-bed">300×180 mm</span>
+        </div>
       </div>
       <div class="header-actions">
         <input type="file" id="stl-file-input" accept=".stl,.obj" style="display: none;">
@@ -49,6 +54,76 @@
     <div class="workspace">
       <!-- Left Sidebar: Settings Accordions (Creality Slicer Style) -->
       <aside class="sidebar-left">
+        <!-- Panel 0: CNC Milling Machine Profile (3D Printer Slicer Style) -->
+        <div class="panel">
+          <h3 class="panel-title">🏭 CNC Milling Machine</h3>
+          <div class="control-group">
+            <label>Machine Model:</label>
+            <select id="machine-select">
+              <option value="genmitsu_3018" selected>Genmitsu 3018-PROVer (300 × 180 mm)</option>
+              <option value="genmitsu_4030">Genmitsu PROVerXL 4030 (400 × 300 mm)</option>
+              <option value="shapeoko_4">Shapeoko 4 Standard (444 × 444 mm)</option>
+              <option value="nomad_3">Carbide Nomad 3 (200 × 200 mm)</option>
+              <option value="bantam_desktop">Bantam Tools Desktop CNC (178 × 127 mm)</option>
+              <option value="x_carve_1000">Inventables X-Carve 1000mm (750 × 750 mm)</option>
+              <option value="carvera_atc">Makera Carvera ATC (360 × 240 mm)</option>
+              <option value="custom_mill">Custom CNC Milling Machine...</option>
+            </select>
+          </div>
+
+          <div class="stats-grid" style="margin-bottom: 8px;">
+            <div class="stat-box">
+              <span class="stat-label">Bed Area</span>
+              <span class="stat-val" id="machine-stat-bed">300 × 180 mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Max Z Travel</span>
+              <span class="stat-val" id="machine-stat-z">45 mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Bed Layout</span>
+              <span class="stat-val" id="machine-stat-layout" style="font-size: 11px;">Aluminum T-Slot</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Max Spindle</span>
+              <span class="stat-val" id="machine-stat-spindle">10,000 RPM</span>
+            </div>
+          </div>
+
+          <!-- Custom Machine Dimensions (displayed only when custom_mill is selected) -->
+          <div id="custom-machine-controls" style="display: none; background: #18181c; padding: 8px; border-radius: 4px; margin-bottom: 8px; border: 1px dashed #3f3f46;">
+            <div class="control-row">
+              <div>
+                <label>Bed Width X (mm)</label>
+                <input type="number" id="custom-bed-w" value="400" min="50" max="2000">
+              </div>
+              <div>
+                <label>Bed Length Y (mm)</label>
+                <input type="number" id="custom-bed-l" value="400" min="50" max="2000">
+              </div>
+            </div>
+            <div class="control-row">
+              <div>
+                <label>Max Z Travel (mm)</label>
+                <input type="number" id="custom-bed-z" value="100" min="20" max="500">
+              </div>
+              <div>
+                <label>Max RPM</label>
+                <input type="number" id="custom-bed-rpm" value="16000" min="1000" max="60000" step="1000">
+              </div>
+            </div>
+            <button id="btn-apply-custom-bed" class="btn btn-tool" style="width: 100%; justify-content: center;">Apply Custom Bed Dimensions</button>
+          </div>
+
+          <!-- Visual Bed Toggles -->
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-travel-cage" checked> Machine Travel Envelope Cage</label>
+          </div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-bed-features" checked> T-Tracks / Clamping Dogholes</label>
+          </div>
+        </div>
+
         <!-- Panel 1: Inserted Model Info -->
         <div class="panel">
           <h3 class="panel-title">📦 Inserted 3D Model</h3>

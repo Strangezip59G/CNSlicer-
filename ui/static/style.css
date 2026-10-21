@@ -70,6 +70,45 @@ body {
   font-size: 11px;
 }
 
+.machine-header-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #232329;
+  border: 1px solid #3f3f46;
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  color: #e4e4e7;
+  margin-left: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.machine-header-badge:hover {
+  border-color: var(--accent-blue);
+  background: #272730;
+}
+
+.machine-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.machine-bed-pill {
+  background: #18181b;
+  color: #38bdf8;
+  border: 1px solid #27272a;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
