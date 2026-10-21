@@ -18,8 +18,8 @@
       <div class="brand">
         <span class="brand-icon">⚙️</span>
         <span class="brand-title">CNC Milling Slicer</span>
-        <span class="brand-tag">Creality-Style CAM</span>
-        <div class="machine-header-badge" id="header-machine-badge" title="Active Milling Machine Profile">
+        <span class="brand-tag">Subtractive Studio v1.0</span>
+        <div class="machine-header-badge" id="header-machine-badge" title="Active Milling Machine Profile (Click to change)">
           <span class="machine-status-dot"></span>
           <span id="header-machine-name">Genmitsu 3018-PROVer</span>
           <span class="machine-bed-pill" id="header-machine-bed">300×180 mm</span>
@@ -27,25 +27,25 @@
       </div>
       <div class="header-actions">
         <input type="file" id="stl-file-input" accept=".stl,.obj" style="display: none;">
-        <button id="btn-upload-stl" class="btn btn-accent">
+        <button id="btn-upload-stl" class="btn btn-secondary">
           <span class="icon">📁</span> Insert 3D Model (.STL)
         </button>
-        <button id="btn-scan-lidar" class="btn btn-lidar">
-          <span class="icon">📡</span> Auto-Scan Bed (LiDAR)
+        <button id="btn-load-sample2" class="btn btn-secondary" title="Load sample 3D pyramid model">
+          <span class="icon">🏛️</span> Sample Part
         </button>
-        <button id="btn-load-sample2" class="btn btn-secondary">
-          <span class="icon">🏛️</span> Sample Pyramid
+        <button id="btn-scan-lidar" class="btn btn-lidar" title="Scan physical spoilboard for surface warpage">
+          <span class="icon">📡</span> LiDAR Auto-Level
         </button>
-        <button id="btn-analyze-model" class="btn btn-accent">
-          <span class="icon">🔍</span> Analyze Design
+        <button id="btn-analyze-model" class="btn btn-accent" title="Analyze model silhouette, volume & optimal stock dimensions">
+          <span class="icon">🔍</span> Analyze Geometry
         </button>
-        <button id="btn-slice" class="btn btn-primary">
+        <button id="btn-slice" class="btn btn-primary" title="Calculate subtractive layered clearing toolpaths">
           <span class="icon">🔪</span> Slice Stock
         </button>
-        <button id="btn-view-gcode" class="btn btn-secondary" disabled>
+        <button id="btn-view-gcode" class="btn btn-secondary" disabled title="Inspect generated G-code text">
           <span class="icon">📜</span> View G-Code
         </button>
-        <button id="btn-export-gcode" class="btn btn-success" disabled>
+        <button id="btn-export-gcode" class="btn btn-success" disabled title="Download machine G-code file">
           <span class="icon">💾</span> Download G-Code
         </button>
       </div>
@@ -530,15 +530,15 @@
           <div><span class="legend-box rapid-legend"></span> Rapid Travel (G0)</div>
         </div>
 
-        <!-- Preset Viewport Buttons -->
+        <!-- Floating HUD Viewport Navigation Dock (Modern CAD Floating Dock) -->
         <div class="viewport-controls">
-          <button id="btn-view-top" class="btn-tool">Top View</button>
-          <button id="btn-view-iso" class="btn-tool">Isometric</button>
-          <button id="btn-view-front" class="btn-tool">Front</button>
-          <button id="btn-reset-cam" class="btn-tool">Reset Cam</button>
+          <button id="btn-view-top" class="btn-tool" title="Top-down orthographic view">📐 Top</button>
+          <button id="btn-view-iso" class="btn-tool" title="Isometric 3D perspective view">🧊 Isometric</button>
+          <button id="btn-view-front" class="btn-tool" title="Front elevation view">⏹ Front</button>
+          <button id="btn-reset-cam" class="btn-tool" title="Reset 3D camera to default">⟲ Reset Cam</button>
           <div class="sim-speed-wrapper">
-            <span class="sim-speed-label">Sim Speed:</span>
-            <select id="sim-speed-select" class="select-sim-speed">
+            <span class="sim-speed-label">Speed:</span>
+            <select id="sim-speed-select" class="select-sim-speed" title="Simulation cutting speed multiplier">
               <option value="1">1x</option>
               <option value="5" selected>5x</option>
               <option value="20">20x</option>

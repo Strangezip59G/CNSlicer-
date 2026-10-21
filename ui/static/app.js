@@ -2180,8 +2180,19 @@ async function viewGCode() {
 
 function copyGCodeToClipboard() {
   const text = document.getElementById("gcode-display-text").textContent;
+  const btn = document.getElementById("btn-copy-gcode");
   navigator.clipboard.writeText(text).then(() => {
-    alert("G-Code copied to clipboard!");
+    if (btn) {
+      const origText = btn.textContent;
+      btn.textContent = "✓ Copied!";
+      btn.style.color = "#34d399";
+      btn.style.borderColor = "#059669";
+      setTimeout(() => {
+        btn.textContent = origText;
+        btn.style.color = "";
+        btn.style.borderColor = "";
+      }, 2000);
+    }
   });
 }
 
@@ -2259,4 +2270,19 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-view-front").addEventListener("click", () => setCameraView("front"));
   document.getElementById("btn-view-iso").addEventListener("click", () => setCameraView("iso"));
   document.getElementById("btn-reset-cam").addEventListener("click", () => setCameraView("iso"));
+
+  // Collapsible Accordion Panels
+  setupCollapsiblePanels();
 });
+
+// Setup accordion collapsible panels for polished, decluttered sidebar
+function setupCollapsiblePanels() {
+  document.querySelectorAll(".panel-title").forEach((title) => {
+    title.addEventListener("click", () => {
+      const panel = title.closest(".panel");
+      if (panel) {
+        panel.classList.toggle("collapsed");
+      }
+    });
+  });
+}
