@@ -1054,6 +1054,18 @@ function createToolMesh(diameter = 3.175) {
   return group;
 }
 
+function updateToolMesh(diameter = 3.175) {
+  if (toolMeshGroup) {
+    const isVis = toolMeshGroup.visible;
+    const pos = toolMeshGroup.position.clone();
+    scene.remove(toolMeshGroup);
+    toolMeshGroup = createToolMesh(diameter);
+    toolMeshGroup.position.copy(pos);
+    toolMeshGroup.visible = isVis;
+    scene.add(toolMeshGroup);
+  }
+}
+
 // Crisp cylindrical wireframe silhouette (top ring, bottom ring, 4 quadrant ribs)
 function createCylinderStockWireframe(radius, height) {
   const group = new THREE.Group();
@@ -1515,6 +1527,157 @@ function mirrorAxis(axis) {
   inp.value = -curr;
   syncUIToMesh();
   document.getElementById("status-text").textContent = `Mirrored model along ${axis.toUpperCase()} axis.`;
+}
+
+// Smart Auto-Pilot: Automatically select tool, strategy, cutting parameters, and speeds & feeds
+async function runAutoMode() {
+  document.getElementById("status-text").textContent = "⚡ Auto Mode: Analyzing geometry and optimizing toolpaths, tooling, and feeds...";
+
+  try {
+    const payload = {
+      machine_id: currentMachine ? currentMachine.id : "genmitsu_3018",
+      rot_x: parseFloat(document.getElementById("tf-rot-x") ? document.getElementById("tf-rot-x").value : 0),
+      rot_y: parseFloat(document.getElementById("tf-rot-y") ? document.getElementById("tf-rot-y").value : 0),
+      rot_z: parseFloat(document.getElementById("tf-rot-z") ? document.getElementById("tf-rot-z").value : 0),
+      scale_x: parseFloat(document.getElementById("tf-scale-x") ? document.getElementById("tf-scale-x").value : 100) / 100,
+      scale_y: parseFloat(document.getElementById("tf-scale-y") ? document.getElementById("tf-scale-y").value : 100) / 100,
+      scale_z: parseFloat(document.getElementById("tf-scale-z") ? document.getElementById("tf-scale-z").value : 100) / 100,
+    };
+
+    const res = await fetch("/api/slicer/auto_setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) {
+      document.getElementById("status-text").textContent = `Auto Mode Error: ${data.error || "Failed to calculate auto setup"}`;
+      return;
+    }
+
+    applyAutoModeRecommendations(data);
+
+    // Also trigger design analysis outlines if not yet generated
+    if (!latestAnalysis) {
+      runDesignAnalysis(false);
+    }
+  } catch (err) {
+    console.error("Auto Mode failed:", err);
+    document.getElementById("status-text").textContent = "Auto Mode failed: Unable to connect to slicer backend.";
+  }
+}
+
+function applyAutoModeRecommendations(data) {
+  // 1. Tool Selection
+  const toolSelect = document.getElementById("tool-select");
+  if (toolSelect && data.tool_key) {
+    toolSelect.value = data.tool_key;
+    highlightAutoElement(toolSelect);
+    updateToolMesh(data.tool_diameter_mm || 3.175);
+  }
+
+  // 2. Machining Strategy (Clearing Pattern)
+  const patternSelect = document.getElementById("clearing-pattern");
+  if (patternSelect && data.clearing_pattern) {
+    patternSelect.value = data.clearing_pattern;
+    highlightAutoElement(patternSelect);
+  }
+
+  // 3. Cutting Parameters (Stepdown, Stepover, Finishing Allowance)
+  const stepdownInput = document.getElementById("cut-stepdown");
+  if (stepdownInput && data.stepdown_mm !== undefined) {
+    stepdownInput.value = data.stepdown_mm;
+    highlightAutoElement(stepdownInput);
+  }
+  const stepoverInput = document.getElementById("cut-stepover");
+  if (stepoverInput && data.stepover_pct !== undefined) {
+    stepoverInput.value = data.stepover_pct;
+    highlightAutoElement(stepoverInput);
+  }
+  const stockToLeaveInput = document.getElementById("stock-to-leave");
+  if (stockToLeaveInput && data.stock_to_leave_mm !== undefined) {
+    stockToLeaveInput.value = data.stock_to_leave_mm;
+    highlightAutoElement(stockToLeaveInput);
+  }
+
+  // Holding Tabs
+  const tabsSelect = document.getElementById("tabs-count");
+  if (tabsSelect && data.tabs_count !== undefined) {
+    tabsSelect.value = data.tabs_count;
+    highlightAutoElement(tabsSelect);
+  }
+  const tabWInput = document.getElementById("tab-width");
+  if (tabWInput && data.tab_width_mm !== undefined) {
+    tabWInput.value = data.tab_width_mm;
+  }
+  const tabHInput = document.getElementById("tab-height");
+  if (tabHInput && data.tab_height_mm !== undefined) {
+    tabHInput.value = data.tab_height_mm;
+  }
+
+  // 4. Speeds & Feeds (Feed XY, Feed Z, Spindle RPM)
+  const feedXyInput = document.getElementById("feed-xy");
+  if (feedXyInput && data.feed_xy_mm_min !== undefined) {
+    feedXyInput.value = data.feed_xy_mm_min;
+    highlightAutoElement(feedXyInput);
+  }
+  const feedZInput = document.getElementById("feed-z");
+  if (feedZInput && data.feed_z_mm_min !== undefined) {
+    feedZInput.value = data.feed_z_mm_min;
+    highlightAutoElement(feedZInput);
+  }
+  const rpmInput = document.getElementById("spindle-rpm");
+  if (rpmInput && data.spindle_rpm !== undefined) {
+    rpmInput.value = data.spindle_rpm;
+    highlightAutoElement(rpmInput);
+  }
+
+  // 5. Stock Shape & Dimensions
+  if (data.recommended_stock_shape) {
+    const shapeSelect = document.getElementById("stock-shape");
+    if (shapeSelect) {
+      shapeSelect.value = data.recommended_stock_shape;
+      shapeSelect.dispatchEvent(new Event("change"));
+    }
+
+    if (data.recommended_stock_dims) {
+      const d = data.recommended_stock_dims;
+      if (d.width) document.getElementById("stock-w").value = d.width;
+      if (d.length) document.getElementById("stock-l").value = d.length;
+      if (d.thickness) document.getElementById("stock-t").value = d.thickness;
+      if (d.diameter) document.getElementById("stock-d").value = d.diameter;
+    }
+    renderCurrentStockMesh();
+  }
+
+  // 6. Update Telemetry Card & Rationale List
+  const telemCard = document.getElementById("auto-mode-telemetry");
+  if (telemCard) {
+    telemCard.style.display = "block";
+    const pill = document.getElementById("auto-summary-pill");
+    if (pill) pill.textContent = `⚡ Auto: ${data.summary}`;
+
+    const list = document.getElementById("auto-reasons-list");
+    if (list && data.reasons) {
+      list.innerHTML = "";
+      data.reasons.forEach((reason) => {
+        const li = document.createElement("li");
+        li.textContent = reason;
+        list.appendChild(li);
+      });
+    }
+  }
+
+  // 7. Update status bar
+  document.getElementById("status-text").textContent = `⚡ Auto Mode Applied: ${data.tool_name} • ${data.clearing_pattern} pattern • ${data.stepdown_mm}mm DOC • ${data.spindle_rpm.toLocaleString()} RPM @ ${data.feed_xy_mm_min} mm/min.`;
+}
+
+function highlightAutoElement(el) {
+  if (!el) return;
+  el.classList.remove("auto-highlight");
+  void el.offsetWidth; // Force CSS reflow to restart keyframe
+  el.classList.add("auto-highlight");
+  setTimeout(() => el.classList.remove("auto-highlight"), 1800);
 }
 
 // Design Analysis & Outline Generation
@@ -2270,6 +2433,26 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-view-front").addEventListener("click", () => setCameraView("front"));
   document.getElementById("btn-view-iso").addEventListener("click", () => setCameraView("iso"));
   document.getElementById("btn-reset-cam").addEventListener("click", () => setCameraView("iso"));
+
+  // Auto Mode actions
+  const btnAutoMode = document.getElementById("btn-auto-mode");
+  if (btnAutoMode) btnAutoMode.addEventListener("click", runAutoMode);
+  const btnTriggerAuto = document.getElementById("btn-trigger-auto-mode");
+  if (btnTriggerAuto) btnTriggerAuto.addEventListener("click", runAutoMode);
+
+  // Tool selection updates 3D tool model
+  const toolSelect = document.getElementById("tool-select");
+  if (toolSelect) {
+    toolSelect.addEventListener("change", (e) => {
+      const toolMap = {
+        flat_1_8: 3.175,
+        flat_1_4: 6.35,
+        flat_6mm: 6.0,
+        v_bit_60: 6.35
+      };
+      updateToolMesh(toolMap[e.target.value] || 3.175);
+    });
+  }
 
   // Collapsible Accordion Panels
   setupCollapsiblePanels();

@@ -39,6 +39,9 @@
         <button id="btn-analyze-model" class="btn btn-accent" title="Analyze model silhouette, volume & optimal stock dimensions">
           <span class="icon">🔍</span> Analyze Geometry
         </button>
+        <button id="btn-auto-mode" class="btn btn-auto" title="⚡ Auto Mode: Automatically select optimal tool, machining strategy, cutting parameters, and speeds & feeds">
+          <span class="icon">⚡</span> Auto Mode
+        </button>
         <button id="btn-slice" class="btn btn-primary" title="Calculate subtractive layered clearing toolpaths">
           <span class="icon">🔪</span> Slice Stock
         </button>
@@ -55,6 +58,25 @@
     <div class="workspace">
       <!-- Left Sidebar: Settings Accordions (Creality Slicer Style) -->
       <aside class="sidebar-left">
+        <!-- Panel: Smart Auto Mode Optimizer -->
+        <div class="panel auto-mode-card" id="card-auto-mode">
+          <div class="auto-mode-header">
+            <div class="auto-title-group">
+              <span class="auto-badge-icon">⚡</span>
+              <div>
+                <h3 class="panel-title" style="margin: 0; padding: 0; cursor: default;">Smart Auto-Mode</h3>
+                <span class="auto-subtitle">1-Click Tool, Strategy & Speeds Optimizer</span>
+              </div>
+            </div>
+            <button id="btn-trigger-auto-mode" class="btn btn-auto-sm" title="Analyze model and auto-configure all cutting parameters">⚡ Auto Optimize</button>
+          </div>
+          <div id="auto-mode-telemetry" style="display: none; margin-top: 10px;">
+            <div class="auto-summary-pill" id="auto-summary-pill">Optimal: 1/8" Endmill • Concentric • 10,000 RPM</div>
+            <ul class="auto-reasons-list" id="auto-reasons-list">
+            </ul>
+          </div>
+        </div>
+
         <!-- Panel 0: CNC Milling Machine Profile (3D Printer Slicer Style) -->
         <div class="panel">
           <h3 class="panel-title">🏭 CNC Milling Machine</h3>

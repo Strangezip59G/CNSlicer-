@@ -22,6 +22,7 @@ from engine.slicer.stock import StockBlock, StockShape
 from engine.slicer.tool import CuttingTool, ToolType
 from engine.slicer.subtractive import SubtractiveSlicer
 from engine.slicer.analyzer import DesignAnalyzer
+from engine.slicer.auto_pilot import AutoPilot
 from engine.slicer.machine import STANDARD_CNC_MACHINES, get_machine_profile, CNCProfile, BedLayoutType
 from engine.gcode.generator import GCodeGenerator
 from engine.gcode.validator import GCodeValidator
@@ -591,6 +592,46 @@ def analyze_model():
         })
     except Exception as exc:
         return jsonify({"error": f"Design analysis failed: {exc}"}), 500
+
+
+@app.post("/api/slicer/auto_setup")
+def auto_setup():
+    """Auto-select optimal tool, machining strategy, speeds & feeds, and cutting parameters
+    based on current 3D geometry analysis and active CNC machine profile.
+    """
+    global current_loaded_mesh, active_machine
+    if current_loaded_mesh is None:
+        return jsonify({"error": "No 3D model loaded to optimize for."}), 400
+
+    try:
+        data = request.get_json(silent=True) or {}
+        machine_id = data.get("machine_id")
+        machine = STANDARD_CNC_MACHINES.get(machine_id, active_machine)
+
+        # Apply any current client orientation/scale
+        rot_x = float(data.get("rot_x", 0.0))
+        rot_y = float(data.get("rot_y", 0.0))
+        rot_z = float(data.get("rot_z", 0.0))
+        scale_x = float(data.get("scale_x", 1.0))
+        scale_y = float(data.get("scale_y", 1.0))
+        scale_z = float(data.get("scale_z", 1.0))
+
+        mesh = current_loaded_mesh.copy()
+        if any(abs(r) > 0.01 for r in [rot_x, rot_y, rot_z]):
+            rx, ry, rz = np.radians(rot_x), np.radians(rot_y), np.radians(rot_z)
+            mesh.apply_transform(trimesh.transformations.euler_matrix(rx, ry, rz))
+        if any(abs(s - 1.0) > 0.001 for s in [scale_x, scale_y, scale_z]):
+            mesh.apply_scale([scale_x, scale_y, scale_z])
+
+        analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+        analysis = analyzer.analyze(mesh)
+
+        recommendation = AutoPilot.compute_recommendations(analysis, machine)
+        res = recommendation.to_dict()
+        res["success"] = True
+        return jsonify(res)
+    except Exception as exc:
+        return jsonify({"error": f"Auto setup calculation failed: {exc}"}), 500
 
 
 @app.get("/api/gcode/text")
