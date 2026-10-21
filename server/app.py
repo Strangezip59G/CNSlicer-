@@ -108,8 +108,8 @@ def slice_model():
     stock_t = float(data.get("stock_t", 20.0))
     stock_d = float(data.get("stock_d", max(stock_w, stock_l)))
     stock_lock_to_model = bool(data.get("stock_lock_to_model", True))
-    stock_origin_x = float(data.get("stock_origin_x", 50.0))
-    stock_origin_y = float(data.get("stock_origin_y", 50.0))
+    stock_origin_x = float(data.get("stock_origin_x", -stock_w / 2.0))
+    stock_origin_y = float(data.get("stock_origin_y", -stock_l / 2.0))
 
     stepdown = float(data.get("stepdown", 1.0))
     stepover = float(data.get("stepover", 0.45))
@@ -134,8 +134,8 @@ def slice_model():
     tab_width = float(data.get("tab_width", 5.0))
     tab_height = float(data.get("tab_height", 2.0))
 
-    target_cx = 50.0 + stock_w / 2.0 + pos_x
-    target_cy = 50.0 + stock_l / 2.0 + pos_y
+    target_cx = pos_x
+    target_cy = pos_y
 
     shape_enum = StockShape(stock_shape) if stock_shape in StockShape._value2member_map_ else StockShape.BOX
     stock = StockBlock(
@@ -144,8 +144,8 @@ def slice_model():
         length_y=stock_l,
         thickness_z=stock_t,
         diameter_d=stock_d,
-        origin_x=stock_origin_x,
-        origin_y=stock_origin_y
+        origin_x=target_cx - stock_w / 2.0,
+        origin_y=target_cy - stock_l / 2.0
     )
     if stock_lock_to_model:
         stock.set_center(target_cx, target_cy)
@@ -214,11 +214,11 @@ def slice_model():
             tab_height_mm=tab_height
         )
     else:
-        # Sample 1: Block with circular hole and oblong slot
-        cx, cy = 50 + stock_w / 2, 50 + stock_l / 2
-        hole = sg.Point(50 + 25.0, cy).buffer(8.0)
-        slot = sg.box(50 + stock_w - 35.0, cy - 5.0, 50 + stock_w - 15.0, cy + 5.0).buffer(3.0)
-        perimeter = sg.box(55.0, 55.0, 50 + stock_w - 5.0, 50 + stock_l - 5.0)
+        # Sample 1: Block with circular hole and oblong slot centered around (target_cx, target_cy)
+        cx, cy = target_cx, target_cy
+        hole = sg.Point(cx - stock_w * 0.25, cy).buffer(8.0)
+        slot = sg.box(cx + 5.0, cy - 5.0, cx + stock_w * 0.35, cy + 5.0).buffer(3.0)
+        perimeter = sg.box(cx - stock_w / 2.0 + 5.0, cy - stock_l / 2.0 + 5.0, cx + stock_w / 2.0 - 5.0, cy + stock_l / 2.0 - 5.0)
 
         result = slicer.slice_25d_pockets_and_profiles(
             pockets=[slot],

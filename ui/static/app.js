@@ -33,7 +33,7 @@ function initViewport() {
 
   // Orbit controls (Orbit / Pan / Zoom)
   controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(80, 80, 15);
+  controls.target.set(0, 0, 15);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
@@ -125,15 +125,17 @@ function createBedGrid(w, l) {
     metalness: 0.1
   });
   const plate = new THREE.Mesh(plateGeo, plateMat);
-  plate.position.set(w / 2, l / 2, -0.2);
+  plate.position.set(0, 0, -0.2);
   gridGroup.add(plate);
 
   const grid = new THREE.GridHelper(w, 40, 0x44444c, 0x2a2a30);
   grid.rotation.x = Math.PI / 2;
-  grid.position.set(w / 2, l / 2, 0);
+  grid.position.set(0, 0, 0);
   gridGroup.add(grid);
 
-  const axes = new THREE.AxesHelper(50);
+  // Red=X, Green=Y, Blue=Z centered at bed origin (0, 0, 0)
+  const axes = new THREE.AxesHelper(60);
+  axes.renderOrder = 2;
   gridGroup.add(axes);
 
   bedGrid = gridGroup;
@@ -202,8 +204,8 @@ function renderCurrentStockMesh() {
   const t = parseFloat(document.getElementById("stock-t") ? document.getElementById("stock-t").value : 32);
   const dia = parseFloat(document.getElementById("stock-d") ? document.getElementById("stock-d").value : 90);
 
-  let cx = 50 + w / 2;
-  let cy = 50 + l / 2;
+  let cx = 0;
+  let cy = 0;
 
   const isLocked = document.getElementById("stock-lock-to-model") ? document.getElementById("stock-lock-to-model").checked : true;
   if (isLocked && currentMesh) {
@@ -325,10 +327,8 @@ function display3DMesh(vertices, faces, metadata, analysis = null) {
 
   const mesh = new THREE.Mesh(geometry, mat);
 
-  // Position model centered on stock
-  const stockW = parseFloat(document.getElementById("stock-w").value || 70);
-  const stockL = parseFloat(document.getElementById("stock-l").value || 70);
-  mesh.position.set(50 + stockW / 2, 50 + stockL / 2, 0);
+  // Position model centered at bed origin (0, 0, 0)
+  mesh.position.set(0, 0, 0);
 
   partMeshGroup.add(mesh);
   currentMesh = mesh;
@@ -374,13 +374,9 @@ function resetTransformsUI() {
 // Synchronize mesh transformations -> UI drawer fields
 function syncMeshToUI() {
   if (!currentMesh) return;
-  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
-  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
-  const baseX = 50 + stockW / 2;
-  const baseY = 50 + stockL / 2;
 
-  const px = currentMesh.position.x - baseX;
-  const py = currentMesh.position.y - baseY;
+  const px = currentMesh.position.x;
+  const py = currentMesh.position.y;
   const pz = currentMesh.position.z;
 
   document.getElementById("tf-pos-x").value = px.toFixed(1);
@@ -405,10 +401,6 @@ function syncMeshToUI() {
 // Synchronize UI drawer fields -> mesh transformations
 function syncUIToMesh() {
   if (!currentMesh) return;
-  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
-  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
-  const baseX = 50 + stockW / 2;
-  const baseY = 50 + stockL / 2;
 
   const px = parseFloat(document.getElementById("tf-pos-x").value || 0);
   const py = parseFloat(document.getElementById("tf-pos-y").value || 0);
@@ -422,7 +414,7 @@ function syncUIToMesh() {
   const sy = parseFloat(document.getElementById("tf-scale-y").value || 100) / 100;
   const sz = parseFloat(document.getElementById("tf-scale-z").value || 100) / 100;
 
-  currentMesh.position.set(baseX + px, baseY + py, pz);
+  currentMesh.position.set(px, py, pz);
   currentMesh.rotation.set(rx, ry, rz);
   currentMesh.scale.set(sx, sy, sz);
 
@@ -515,7 +507,7 @@ function centerModelInStock() {
   document.getElementById("tf-pos-y").value = "0.0";
   document.getElementById("tf-pos-z").value = "0.0";
   syncUIToMesh();
-  document.getElementById("status-text").textContent = "Model centered in stock block.";
+  document.getElementById("status-text").textContent = "Model centered at bed origin (X: 0, Y: 0, Z: 0).";
 }
 
 function dropModelToBed() {
@@ -948,6 +940,16 @@ async function autoScanBedLidar() {
 
   document.getElementById("status-text").textContent = "Toolhead LiDAR sweeping machine bed to locate stock coordinates & surface flatness...";
 
+  const stockW = parseFloat(document.getElementById("stock-w").value || 70);
+  const stockL = parseFloat(document.getElementById("stock-l").value || 70);
+  const stockT = parseFloat(document.getElementById("stock-t").value || 30);
+  let stockX = -stockW / 2;
+  let stockY = -stockL / 2;
+  if (currentMesh) {
+    stockX = currentMesh.position.x - stockW / 2;
+    stockY = currentMesh.position.y - stockL / 2;
+  }
+
   try {
     const res = await fetch("/api/lidar/scan", {
       method: "POST",
@@ -955,11 +957,11 @@ async function autoScanBedLidar() {
       body: JSON.stringify({
         bed_w: 400,
         bed_l: 400,
-        stock_x: 50,
-        stock_y: 50,
-        stock_w: parseFloat(document.getElementById("stock-w").value),
-        stock_l: parseFloat(document.getElementById("stock-l").value),
-        stock_t: parseFloat(document.getElementById("stock-t").value)
+        stock_x: stockX,
+        stock_y: stockY,
+        stock_w: stockW,
+        stock_l: stockL,
+        stock_t: stockT
       })
     });
     const data = await res.json();
@@ -1238,14 +1240,12 @@ function exportGCodeFile() {
 
 // Camera Preset Views
 function setCameraView(view) {
-  const stockW = parseFloat(document.getElementById("stock-w").value);
-  const stockL = parseFloat(document.getElementById("stock-l").value);
-  const stockT = parseFloat(document.getElementById("stock-t").value);
-  let cx = 50 + stockW / 2;
-  let cy = 50 + stockL / 2;
+  const stockT = parseFloat(document.getElementById("stock-t").value || 30);
+  let cx = 0;
+  let cy = 0;
   const cz = stockT / 2;
 
-  if (document.getElementById("stock-lock-to-model").checked && currentMesh) {
+  if (currentMesh) {
     cx = currentMesh.position.x;
     cy = currentMesh.position.y;
   }

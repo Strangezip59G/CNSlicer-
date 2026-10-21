@@ -212,10 +212,15 @@ class GCodeValidator:
         else:
             passed_checks.append(f"Spoilboard bed integrity verified: minimum Z = {max(0.0, min_z):.2f} mm.")
 
-        if max_x > self.bed_width or max_y > self.bed_length:
-            warnings.append(f"Toolpaths exceed standard bed envelope ({max_x:.1f} x {max_y:.1f} mm).")
+        half_w = self.bed_width / 2.0
+        half_l = self.bed_length / 2.0
+        is_within_centered = (-half_w <= min_x <= half_w) and (-half_w <= max_x <= half_w) and (-half_l <= min_y <= half_l) and (-half_l <= max_y <= half_l)
+        is_within_corner = (0.0 <= min_x <= self.bed_width) and (0.0 <= max_x <= self.bed_width) and (0.0 <= min_y <= self.bed_length) and (0.0 <= max_y <= self.bed_length)
+
+        if not (is_within_centered or is_within_corner):
+            warnings.append(f"Toolpaths exceed standard bed envelope (X:[{min_x:.1f}, {max_x:.1f}], Y:[{min_y:.1f}, {max_y:.1f}] mm).")
         else:
-            passed_checks.append(f"Machine envelope safe: Part sits within bed ({max(0.0, max_x):.1f} x {max(0.0, max_y):.1f} mm).")
+            passed_checks.append(f"Machine envelope safe: Part sits within bed boundaries.")
 
         if has_program_end:
             passed_checks.append("Program end (M30/M2) and spindle shutdown (M5) verified.")

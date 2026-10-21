@@ -54,10 +54,21 @@ class MockLidarSensor:
             z += np.random.normal(0, self.noise_std_mm)
         return float(z)
 
-    def simulate_sweep(self, step_x: float = 5.0, step_y: float = 10.0) -> np.ndarray:
+    def simulate_sweep(self, step_x: float = 5.0, step_y: float = 10.0, centered: bool | None = None) -> np.ndarray:
         """Simulate a raster sweep across the bed and return Nx3 array of [X, Y, Z]."""
-        xs = np.arange(0, self.bed_width + step_x * 0.5, step_x)
-        ys = np.arange(0, self.bed_length + step_y * 0.5, step_y)
+        if centered is None:
+            has_negative = any(s["x_min"] < 0 or s["y_min"] < 0 for s in self.virtual_stocks)
+            centered = has_negative
+
+        if centered:
+            half_w = self.bed_width / 2.0
+            half_l = self.bed_length / 2.0
+            xs = np.arange(-half_w, half_w + step_x * 0.5, step_x)
+            ys = np.arange(-half_l, half_l + step_y * 0.5, step_y)
+        else:
+            xs = np.arange(0, self.bed_width + step_x * 0.5, step_x)
+            ys = np.arange(0, self.bed_length + step_y * 0.5, step_y)
+
         points = []
         for y in ys:
             for x in xs:
