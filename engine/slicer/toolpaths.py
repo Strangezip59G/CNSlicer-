@@ -98,14 +98,14 @@ class SlicingResult:
 
     @property
     def estimated_time_minutes(self) -> float:
-        """Estimated machining time accounting for cut feedrates and rapid travel speeds."""
-        total_seconds = 0.0
+        """Estimated machining time accounting for cut feedrates, plunge rates, rapid travel speeds, and dwell."""
+        total_seconds = 2.0  # Spindle spinup dwell (G4 P2.0)
         for lyr in self.layers:
             for seg in lyr.segments:
                 for i in range(len(seg.points) - 1):
                     p1, p2 = seg.points[i], seg.points[i + 1]
                     dist = math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2 + (p2.z - p1.z)**2)
-                    speed = p2.feedrate_mm_min if p2.move_type != MoveType.RAPID else self.rapid_feedrate
+                    speed = p2.feedrate_mm_min if p2.move_type not in (MoveType.RAPID, MoveType.RETRACT) else self.rapid_feedrate
                     if speed > 0:
                         total_seconds += (dist / speed) * 60.0
         return total_seconds / 60.0

@@ -48,7 +48,7 @@ class GCodeGenerator:
                 if not seg.points:
                     continue
 
-                lines.append(f"; Op: {seg.operation.value.upper()} (Seg {seg_idx + 1})")
+                lines.append(f"; Op: {seg.operation.value.upper()} ({'Closed Loop' if seg.is_closed else 'Open Path'} - Seg {seg_idx + 1}/{len(lyr.segments)})")
 
                 for pt in seg.points:
                     cmd_parts = []
@@ -58,15 +58,15 @@ class GCodeGenerator:
                     else:
                         cmd_parts.append("G1")
 
-                    # Coordinate updates
+                    # Coordinate updates (skip micro-steps < 0.001mm)
                     coord_str = ""
-                    if last_x is None or abs(pt.x - last_x) > 0.0005:
+                    if last_x is None or abs(pt.x - last_x) > 0.001:
                         coord_str += f" X{pt.x:.3f}"
                         last_x = pt.x
-                    if last_y is None or abs(pt.y - last_y) > 0.0005:
+                    if last_y is None or abs(pt.y - last_y) > 0.001:
                         coord_str += f" Y{pt.y:.3f}"
                         last_y = pt.y
-                    if last_z is None or abs(pt.z - last_z) > 0.0005:
+                    if last_z is None or abs(pt.z - last_z) > 0.001:
                         coord_str += f" Z{pt.z:.3f}"
                         last_z = pt.z
 

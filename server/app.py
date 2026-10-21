@@ -161,7 +161,8 @@ def slice_model():
         plunge_rate_z_mm_min=feed_z
     )
 
-    slicer = SubtractiveSlicer(stock=stock, tool=tool)
+    simplification_tol = float(data.get("simplification_tol", 0.01))
+    slicer = SubtractiveSlicer(stock=stock, tool=tool, simplification_tolerance=simplification_tol)
 
     mesh_to_slice = None
     if model_type == "custom_stl" and current_loaded_mesh is not None:

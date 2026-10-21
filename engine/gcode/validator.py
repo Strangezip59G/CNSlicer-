@@ -20,6 +20,7 @@ class GCodeVerificationReport:
     min_feedrate_z: float
     spindle_rpm: int
     estimated_time_minutes: float
+    micro_moves: int = 0
     passed_checks: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -39,6 +40,7 @@ class GCodeVerificationReport:
             "min_feedrate_z": self.min_feedrate_z,
             "spindle_rpm": self.spindle_rpm,
             "estimated_time_minutes": round(self.estimated_time_minutes, 2),
+            "micro_moves": self.micro_moves,
             "passed_checks": self.passed_checks,
             "warnings": self.warnings,
             "errors": self.errors
@@ -80,6 +82,7 @@ class GCodeValidator:
         motion_blocks = 0
         rapid_blocks = 0
         cutting_blocks = 0
+        micro_moves = 0
         max_feed_xy = 0.0
         min_feed_z = float("inf")
 
@@ -165,6 +168,8 @@ class GCodeValidator:
                 elif active_motion == "G1":
                     cutting_blocks += 1
                     total_cut_dist += step_dist
+                    if step_dist < 0.01:
+                        micro_moves += 1
 
                     # Cutting safety checks
                     if not spindle_running:
@@ -227,6 +232,13 @@ class GCodeValidator:
         else:
             warnings.append("Missing M30 program termination code at end of file.")
 
+        if cutting_blocks > 0:
+            micro_pct = (micro_moves / cutting_blocks) * 100.0
+            if micro_pct > 50.0:
+                warnings.append(f"High micro-move density: {micro_moves} moves ({micro_pct:.1f}%) < 0.01mm. Consider contour simplification.")
+            else:
+                passed_checks.append(f"Contour density optimal: {micro_moves} micro-moves (< 0.01mm) detected ({micro_pct:.1f}% of cuts).")
+
         # Overall Status
         if len(errors) > 0:
             status = "FAIL"
@@ -242,7 +254,7 @@ class GCodeValidator:
         if min_x == float("inf"):
             min_x = max_x = min_y = max_y = min_z = max_z = 0.0
 
-        est_time = (total_cut_dist / max(1.0, max_feed_xy)) + (total_rapid_dist / 3000.0)
+        est_time = (total_cut_dist / max(1.0, max_feed_xy)) + (total_rapid_dist / 3000.0) + (2.0 / 60.0)
 
         return GCodeVerificationReport(
             is_valid=is_valid,
@@ -262,6 +274,7 @@ class GCodeValidator:
             min_feedrate_z=round(min_feed_z, 1) if min_feed_z != float("inf") else 300.0,
             spindle_rpm=spindle_speed,
             estimated_time_minutes=est_time,
+            micro_moves=micro_moves,
             passed_checks=passed_checks,
             warnings=warnings,
             errors=errors

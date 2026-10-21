@@ -13,6 +13,52 @@ from engine.slicer.toolpaths import (
 )
 
 
+def simplify_coords(coords: Sequence[tuple[float, float]], tolerance: float = 0.01) -> list[tuple[float, float]]:
+    """Remove redundant collinear or near-duplicate micro-movements along a 2D contour."""
+    if len(coords) < 3:
+        return list(coords)
+
+    # 1. Deduplicate adjacent points closer than half tolerance
+    min_dist_sq = (tolerance * 0.5) ** 2
+    deduped = [coords[0]]
+    for pt in coords[1:]:
+        dx = pt[0] - deduped[-1][0]
+        dy = pt[1] - deduped[-1][1]
+        if dx * dx + dy * dy >= min_dist_sq:
+            deduped.append(pt)
+
+    if len(deduped) < 3:
+        return deduped
+
+    # 2. Filter collinear points using perpendicular distance
+    simplified = [deduped[0]]
+    for i in range(1, len(deduped) - 1):
+        prev_p = simplified[-1]
+        curr_p = deduped[i]
+        next_p = deduped[i + 1]
+
+        dx1 = curr_p[0] - prev_p[0]
+        dy1 = curr_p[1] - prev_p[1]
+        dx2 = next_p[0] - prev_p[0]
+        dy2 = next_p[1] - prev_p[1]
+
+        seg_len_sq = dx2 * dx2 + dy2 * dy2
+        if seg_len_sq < 1e-10:
+            continue
+
+        cross = abs(dx1 * dy2 - dy1 * dx2)
+        perp_dist_sq = (cross * cross) / seg_len_sq
+        dot = dx1 * dx2 + dy1 * dy2
+
+        if perp_dist_sq < (tolerance * tolerance) and (0.0 <= dot <= seg_len_sq):
+            continue
+
+        simplified.append(curr_p)
+
+    simplified.append(deduped[-1])
+    return simplified
+
+
 class SubtractiveSlicer:
     """The Subtractive Slicing Engine.
 
@@ -26,13 +72,15 @@ class SubtractiveSlicer:
         tool: CuttingTool,
         safe_z_margin: float = 5.0,
         rapid_speed: float = 3000.0,
-        use_conformal_lidar: bool = True
+        use_conformal_lidar: bool = True,
+        simplification_tolerance: float = 0.01
     ):
         self.stock = stock
         self.tool = tool
         self.safe_z = stock.top_z + safe_z_margin
         self.rapid_speed = rapid_speed
         self.use_conformal_lidar = use_conformal_lidar
+        self.simplification_tolerance = simplification_tolerance
 
     def _apply_conformal_z(self, x: float, y: float, nominal_z: float) -> float:
         """Modulate nominal Z with LiDAR surface heightmap if available."""
@@ -98,21 +146,29 @@ class SubtractiveSlicer:
                     if len(disc) >= 3:
                         poly = sg.Polygon(disc)
                         if poly.is_valid and poly.area > 0.01:
+                            poly = poly.simplify(self.simplification_tolerance, preserve_topology=True)
                             part_polys.append(poly)
 
                 part_union = so.unary_union(part_polys) if part_polys else sg.Polygon()
+                if not part_union.is_empty:
+                    part_union = part_union.simplify(self.simplification_tolerance, preserve_topology=True)
             else:
                 part_union = sg.Polygon()
 
             # 2. Material to Remove = Stock(Z) - Part(Z) (with stock_to_leave allowance)
             if not part_union.is_empty:
                 if stock_to_leave_mm > 0:
-                    buffered_part = part_union.buffer(stock_to_leave_mm)
+                    buffered_part = part_union.buffer(
+                        stock_to_leave_mm, join_style=sg.JOIN_STYLE.mitre, mitre_limit=2.0
+                    ).simplify(self.simplification_tolerance, preserve_topology=True)
                     removal_area = stock_poly.difference(buffered_part)
                 else:
                     removal_area = stock_poly.difference(part_union)
             else:
                 removal_area = stock_poly
+
+            if not removal_area.is_empty:
+                removal_area = removal_area.simplify(self.simplification_tolerance, preserve_topology=True)
 
             # 3. Generate pocket clearing passes (Concentric or Zigzag)
             if clearing_pattern == "zigzag":
@@ -199,10 +255,11 @@ class SubtractiveSlicer:
         segments = []
         tool_r = self.tool.radius_mm
         stepover = self.tool.stepover_mm
+        tol = self.simplification_tolerance
 
-        # Inward offset so cutter edge stays inside the region boundary
+        # Inward offset so cutter edge stays inside the region boundary (mitre join + simplification)
         curr_offset = -tool_r
-        active_area = region.buffer(curr_offset)
+        active_area = region.buffer(curr_offset, join_style=sg.JOIN_STYLE.mitre, mitre_limit=2.0).simplify(tol, preserve_topology=True)
 
         # Repeated concentric offsets inward until cavity is cleared
         while not active_area.is_empty and active_area.area > (tool_r * tool_r * 0.1):
@@ -212,7 +269,11 @@ class SubtractiveSlicer:
                 if poly.is_empty or len(poly.exterior.coords) < 3:
                     continue
 
-                coords = list(poly.exterior.coords)
+                raw_coords = list(poly.exterior.coords)
+                coords = simplify_coords(raw_coords, tolerance=tol)
+                if len(coords) < 3:
+                    continue
+
                 seg = ToolpathSegment(operation=OperationType.POCKET, is_closed=True)
 
                 # Entry move: Rapid to safe Z above start, plunge, then cut loop
@@ -230,8 +291,8 @@ class SubtractiveSlicer:
                 seg.points.append(ToolpathPoint(x=coords[-1][0], y=coords[-1][1], z=self.safe_z, move_type=MoveType.RETRACT, feedrate_mm_min=self.rapid_speed))
                 segments.append(seg)
 
-            # Step inward for next clearing ring
-            active_area = active_area.buffer(-stepover)
+            # Step inward for next clearing ring (mitre join + simplification)
+            active_area = active_area.buffer(-stepover, join_style=sg.JOIN_STYLE.mitre, mitre_limit=2.0).simplify(tol, preserve_topology=True)
 
         return segments
 
@@ -244,9 +305,10 @@ class SubtractiveSlicer:
         segments = []
         tool_r = self.tool.radius_mm
         stepover = self.tool.stepover_mm
+        tol = self.simplification_tolerance
 
         # Inward offset so tool boundary remains strictly inside the removal region
-        active_area = region.buffer(-tool_r)
+        active_area = region.buffer(-tool_r, join_style=sg.JOIN_STYLE.mitre, mitre_limit=2.0).simplify(tol, preserve_topology=True)
         if active_area.is_empty:
             return segments
 
@@ -270,7 +332,8 @@ class SubtractiveSlicer:
             lines = [inter] if isinstance(inter, sg.LineString) else [g for g in getattr(inter, 'geoms', []) if isinstance(g, sg.LineString)]
 
             for line in lines:
-                coords = list(line.coords)
+                raw_coords = list(line.coords)
+                coords = simplify_coords(raw_coords, tolerance=tol)
                 if len(coords) < 2:
                     continue
 
@@ -307,7 +370,8 @@ class SubtractiveSlicer:
         segments = []
         tool_r = self.tool.radius_mm
         offset_dist = tool_r if offset_outside else -tool_r
-        contour = polygon.buffer(offset_dist)
+        tol = self.simplification_tolerance
+        contour = polygon.buffer(offset_dist, join_style=sg.JOIN_STYLE.mitre, mitre_limit=2.0).simplify(tol, preserve_topology=True)
 
         if contour.is_empty:
             return segments
@@ -318,7 +382,11 @@ class SubtractiveSlicer:
             if poly.is_empty or len(poly.exterior.coords) < 3:
                 continue
 
-            coords = list(poly.exterior.coords)
+            raw_coords = list(poly.exterior.coords)
+            coords = simplify_coords(raw_coords, tolerance=tol)
+            if len(coords) < 3:
+                continue
+
             seg = ToolpathSegment(operation=OperationType.PROFILE, is_closed=True)
 
             start_x, start_y = coords[0]
