@@ -23,6 +23,9 @@ class DesignAnalysisResult:
     surface_area_cm2: float
     footprint_area_mm2: float
     perimeter_length_mm: float
+    circularity: float
+    detected_shape: str
+    shape_description: str
     triangle_count: int
     vertex_count: int
     is_watertight: bool
@@ -115,6 +118,26 @@ class DesignAnalyzer:
         footprint_area = float(silhouette_poly.area)
         perimeter_len = float(silhouette_poly.length)
 
+        # Detect circularity & shape classification
+        circularity = float((4.0 * np.pi * footprint_area) / (perimeter_len ** 2)) if perimeter_len > 0 else 0.0
+        aspect_ratio = min(w_x, l_y) / max(w_x, l_y) if max(w_x, l_y) > 0 else 1.0
+
+        is_circular = (circularity > 0.82) and (aspect_ratio > 0.80)
+        if is_circular:
+            if h_z <= 25.0:
+                detected_shape = "round_plate"
+                shape_desc = "Cylindrical Metal Plate / Disc"
+            else:
+                detected_shape = "cylinder"
+                shape_desc = "Cylinder / Round Bar"
+        else:
+            if h_z <= 15.0:
+                detected_shape = "plate"
+                shape_desc = "Flat Metal Plate (Sheet)"
+            else:
+                detected_shape = "box"
+                shape_desc = "Rectangular Block / Cube"
+
         # Exterior and interior loops for rendering
         ext_coords = []
         int_coords = []
@@ -150,6 +173,9 @@ class DesignAnalyzer:
             surface_area_cm2=round(area_cm2, 2),
             footprint_area_mm2=round(footprint_area, 2),
             perimeter_length_mm=round(perimeter_len, 2),
+            circularity=round(circularity, 3),
+            detected_shape=detected_shape,
+            shape_description=shape_desc,
             triangle_count=len(mesh.faces),
             vertex_count=len(mesh.vertices),
             is_watertight=bool(mesh.is_watertight),

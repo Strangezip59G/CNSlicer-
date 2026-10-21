@@ -313,9 +313,27 @@ def upload_stl():
             except Exception:
                 pass
 
+        analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+        analysis = analyzer.analyze(mesh, margin_xy=5.0, margin_z_top=2.0)
+
         return jsonify({
             "success": True,
             "metadata": current_mesh_metadata,
+            "analysis": {
+                "detected_shape": analysis.detected_shape,
+                "shape_description": analysis.shape_description,
+                "circularity": analysis.circularity,
+                "recommended_box": analysis.recommended_box,
+                "recommended_cylinder": analysis.recommended_cylinder,
+                "recommended_plate": analysis.recommended_plate,
+                "recommended_round_plate": analysis.recommended_round_plate,
+                "footprint_area_mm2": analysis.footprint_area_mm2,
+                "volume_cm3": analysis.volume_cm3,
+                "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
+                "silhouette_exterior": analysis.silhouette_exterior,
+                "silhouette_interiors": analysis.silhouette_interiors,
+                "feature_edges": analysis.feature_edges
+            },
             "vertices": preview_mesh.vertices.tolist(),
             "faces": preview_mesh.faces.tolist()
         })
@@ -346,9 +364,27 @@ def sample_pyramid():
         "faces_count": len(mesh.faces)
     }
 
+    analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+    analysis = analyzer.analyze(mesh, margin_xy=5.0, margin_z_top=2.0)
+
     return jsonify({
         "success": True,
         "metadata": current_mesh_metadata,
+        "analysis": {
+            "detected_shape": analysis.detected_shape,
+            "shape_description": analysis.shape_description,
+            "circularity": analysis.circularity,
+            "recommended_box": analysis.recommended_box,
+            "recommended_cylinder": analysis.recommended_cylinder,
+            "recommended_plate": analysis.recommended_plate,
+            "recommended_round_plate": analysis.recommended_round_plate,
+            "footprint_area_mm2": analysis.footprint_area_mm2,
+            "volume_cm3": analysis.volume_cm3,
+            "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
+            "silhouette_exterior": analysis.silhouette_exterior,
+            "silhouette_interiors": analysis.silhouette_interiors,
+            "feature_edges": analysis.feature_edges
+        },
         "vertices": mesh.vertices.tolist(),
         "faces": mesh.faces.tolist()
     })
@@ -405,9 +441,27 @@ def layflat_model():
             except Exception:
                 pass
 
+        analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+        analysis = analyzer.analyze(mesh, margin_xy=5.0, margin_z_top=2.0)
+
         return jsonify({
             "success": True,
             "metadata": current_mesh_metadata,
+            "analysis": {
+                "detected_shape": analysis.detected_shape,
+                "shape_description": analysis.shape_description,
+                "circularity": analysis.circularity,
+                "recommended_box": analysis.recommended_box,
+                "recommended_cylinder": analysis.recommended_cylinder,
+                "recommended_plate": analysis.recommended_plate,
+                "recommended_round_plate": analysis.recommended_round_plate,
+                "footprint_area_mm2": analysis.footprint_area_mm2,
+                "volume_cm3": analysis.volume_cm3,
+                "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
+                "silhouette_exterior": analysis.silhouette_exterior,
+                "silhouette_interiors": analysis.silhouette_interiors,
+                "feature_edges": analysis.feature_edges
+            },
             "vertices": preview_mesh.vertices.tolist(),
             "faces": preview_mesh.faces.tolist()
         })
@@ -469,6 +523,9 @@ def analyze_model():
             "surface_area_cm2": analysis.surface_area_cm2,
             "footprint_area_mm2": analysis.footprint_area_mm2,
             "perimeter_length_mm": analysis.perimeter_length_mm,
+            "circularity": analysis.circularity,
+            "detected_shape": analysis.detected_shape,
+            "shape_description": analysis.shape_description,
             "triangle_count": analysis.triangle_count,
             "vertex_count": analysis.vertex_count,
             "is_watertight": analysis.is_watertight,

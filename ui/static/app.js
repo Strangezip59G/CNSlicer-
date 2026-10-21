@@ -163,6 +163,37 @@ function createToolMesh(diameter = 3.175) {
   return group;
 }
 
+// Crisp cylindrical wireframe silhouette (top ring, bottom ring, 4 quadrant ribs)
+function createCylinderStockWireframe(radius, height) {
+  const group = new THREE.Group();
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
+
+  const topPts = [];
+  const botPts = [];
+  const segments = 64;
+  for (let i = 0; i <= segments; i++) {
+    const theta = (i / segments) * Math.PI * 2;
+    const x = radius * Math.cos(theta);
+    const y = radius * Math.sin(theta);
+    topPts.push(new THREE.Vector3(x, y, height / 2));
+    botPts.push(new THREE.Vector3(x, y, -height / 2));
+  }
+  group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(topPts), lineMat));
+  group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(botPts), lineMat));
+
+  const ribPts = [];
+  for (let i = 0; i < 4; i++) {
+    const theta = (i / 4) * Math.PI * 2;
+    const x = radius * Math.cos(theta);
+    const y = radius * Math.sin(theta);
+    ribPts.push(new THREE.Vector3(x, y, -height / 2));
+    ribPts.push(new THREE.Vector3(x, y, height / 2));
+  }
+  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ribPts), lineMat));
+
+  return group;
+}
+
 // Render Raw Stock Mesh (Box, Plate, Cylinder, Round Plate / Disc, Conforming)
 function renderCurrentStockMesh() {
   const shape = document.getElementById("stock-shape") ? document.getElementById("stock-shape").value : "box";
@@ -186,24 +217,6 @@ function renderCurrentStockMesh() {
 function updateStockMesh(shape, w, l, t, dia, cx, cy) {
   if (stockMesh) scene.remove(stockMesh);
 
-  let geo;
-  if (shape === "cylinder" || shape === "round_plate") {
-    const r = dia / 2;
-    geo = new THREE.CylinderGeometry(r, r, t, 64);
-    geo.rotateX(Math.PI / 2); // Orient cylinder upright with Z-axis
-  } else if (shape === "conforming" && latestAnalysis && latestAnalysis.silhouette_exterior && latestAnalysis.silhouette_exterior.length > 2) {
-    const shape2d = new THREE.Shape();
-    latestAnalysis.silhouette_exterior.forEach((p, idx) => {
-      if (idx === 0) shape2d.moveTo(p[0], p[1]);
-      else shape2d.lineTo(p[0], p[1]);
-    });
-    shape2d.closePath();
-    geo = new THREE.ExtrudeGeometry(shape2d, { depth: t, bevelEnabled: false });
-  } else {
-    // Box or Plate
-    geo = new THREE.BoxGeometry(w, l, t);
-  }
-
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0x10b981, // Translucent emerald
     transparent: true,
@@ -214,19 +227,50 @@ function updateStockMesh(shape, w, l, t, dia, cx, cy) {
     depthWrite: false
   });
 
-  stockMesh = new THREE.Mesh(geo, mat);
+  const stockGroup = new THREE.Group();
 
-  if (shape === "conforming") {
-    stockMesh.position.set(cx, cy, 0);
+  if (shape === "cylinder" || shape === "round_plate") {
+    const r = dia / 2;
+    const geo = new THREE.CylinderGeometry(r, r, t, 64);
+    geo.rotateX(Math.PI / 2); // Orient cylinder upright with Z-axis
+    const mesh = new THREE.Mesh(geo, mat);
+    stockGroup.add(mesh);
+
+    // Clean, crisp CAD cylindrical wireframe (top circle, bottom circle, 4 vertical ribs)
+    const wireframe = createCylinderStockWireframe(r, t);
+    stockGroup.add(wireframe);
+
+    stockGroup.position.set(cx, cy, t / 2);
+  } else if (shape === "conforming" && latestAnalysis && latestAnalysis.silhouette_exterior && latestAnalysis.silhouette_exterior.length > 2) {
+    const shape2d = new THREE.Shape();
+    latestAnalysis.silhouette_exterior.forEach((p, idx) => {
+      if (idx === 0) shape2d.moveTo(p[0], p[1]);
+      else shape2d.lineTo(p[0], p[1]);
+    });
+    shape2d.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape2d, { depth: t, bevelEnabled: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    stockGroup.add(mesh);
+
+    const edges = new THREE.EdgesGeometry(geo);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
+    stockGroup.add(new THREE.LineSegments(edges, lineMat));
+
+    stockGroup.position.set(cx, cy, 0);
   } else {
-    stockMesh.position.set(cx, cy, t / 2);
+    // Box or Plate
+    const geo = new THREE.BoxGeometry(w, l, t);
+    const mesh = new THREE.Mesh(geo, mat);
+    stockGroup.add(mesh);
+
+    const edges = new THREE.EdgesGeometry(geo);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
+    stockGroup.add(new THREE.LineSegments(edges, lineMat));
+
+    stockGroup.position.set(cx, cy, t / 2);
   }
 
-  const edges = new THREE.EdgesGeometry(geo);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
-  const wire = new THREE.LineSegments(edges, lineMat);
-  stockMesh.add(wire);
-
+  stockMesh = stockGroup;
   scene.add(stockMesh);
 }
 
@@ -252,7 +296,7 @@ function syncStockToModelPosition() {
 }
 
 // Load 3D Mesh into Scene
-function display3DMesh(vertices, faces, metadata) {
+function display3DMesh(vertices, faces, metadata, analysis = null) {
   transformControls.detach();
   while (partMeshGroup.children.length > 0) {
     partMeshGroup.remove(partMeshGroup.children[0]);
@@ -282,8 +326,8 @@ function display3DMesh(vertices, faces, metadata) {
   const mesh = new THREE.Mesh(geometry, mat);
 
   // Position model centered on stock
-  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
-  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
+  const stockW = parseFloat(document.getElementById("stock-w").value || 70);
+  const stockL = parseFloat(document.getElementById("stock-l").value || 70);
   mesh.position.set(50 + stockW / 2, 50 + stockL / 2, 0);
 
   partMeshGroup.add(mesh);
@@ -304,11 +348,12 @@ function display3DMesh(vertices, faces, metadata) {
   // Reset transform inputs to identity
   resetTransformsUI();
 
-  // Re-render stock mesh centered on model
-  renderCurrentStockMesh();
-
-  // Run automated design analysis to produce outlines
-  runDesignAnalysis();
+  // Apply or run design analysis
+  if (analysis) {
+    applyAnalysisResult(analysis, true);
+  } else {
+    runDesignAnalysis(true);
+  }
 
   document.getElementById("status-text").textContent = `Loaded 3D Model: ${metadata.name} (${metadata.width.toFixed(1)} x ${metadata.length.toFixed(1)} x ${metadata.height.toFixed(1)} mm)`;
 }
@@ -491,7 +536,7 @@ function addRotation(axis, degrees) {
   if (val < 0) val += 360;
   inp.value = val;
   syncUIToMesh();
-  runDesignAnalysis();
+  runDesignAnalysis(false);
 }
 
 function autoFitModelIntoStock() {
@@ -526,7 +571,7 @@ function mirrorAxis(axis) {
 }
 
 // Design Analysis & Outline Generation
-async function runDesignAnalysis() {
+async function runDesignAnalysis(autoSetStock = false) {
   document.getElementById("status-text").textContent = "Analyzing design geometry and extracting boundary outlines for meshing...";
 
   try {
@@ -549,26 +594,51 @@ async function runDesignAnalysis() {
     const data = await res.json();
     if (!data.success) return;
 
-    latestAnalysis = data;
-
-    // Update UI Stats
-    document.getElementById("analysis-footprint").textContent = `${data.footprint_area_mm2.toFixed(0)} mm²`;
-    document.getElementById("analysis-volume").textContent = `${data.volume_cm3.toFixed(1)} cm³`;
-    document.getElementById("analysis-cyl-dia").textContent = `Ø${data.min_cylinder_diameter_mm.toFixed(1)} mm`;
-    document.getElementById("analysis-feature-count").textContent = `${data.feature_edges.length} edges`;
-
-    // Render Outlines in 3D Viewport
-    renderAnalysisOutlines(data);
-
-    document.getElementById("status-text").textContent = `Analysis complete: Footprint ${data.footprint_area_mm2.toFixed(0)} mm², Bounding Cyl Ø${data.min_cylinder_diameter_mm.toFixed(1)}mm. Outlines ready.`;
+    applyAnalysisResult(data, autoSetStock);
   } catch (err) {
     console.error("Design analysis failed:", err);
   }
 }
 
+// Apply Analysis Results & Outlines
+function applyAnalysisResult(data, autoSetStock = false) {
+  latestAnalysis = data;
+
+  // Update UI Stats
+  document.getElementById("analysis-footprint").textContent = `${data.footprint_area_mm2.toFixed(0)} mm²`;
+  document.getElementById("analysis-volume").textContent = `${data.volume_cm3.toFixed(1)} cm³`;
+  document.getElementById("analysis-cyl-dia").textContent = `Ø${data.min_cylinder_diameter_mm.toFixed(1)} mm`;
+  document.getElementById("analysis-feature-count").textContent = `${data.feature_edges.length} edges`;
+
+  // Auto-adapt stock shape & dimensions if autoSetStock is requested
+  if (autoSetStock && data.detected_shape) {
+    const shapeSelect = document.getElementById("stock-shape");
+    shapeSelect.value = data.detected_shape;
+    shapeSelect.dispatchEvent(new Event("change"));
+
+    if (data.detected_shape === "round_plate" || data.detected_shape === "cylinder") {
+      document.getElementById("stock-d").value = data.recommended_cylinder.diameter;
+      document.getElementById("stock-t").value = data.recommended_cylinder.thickness;
+    } else if (data.detected_shape === "plate") {
+      document.getElementById("stock-w").value = data.recommended_plate.width;
+      document.getElementById("stock-l").value = data.recommended_plate.length;
+      document.getElementById("stock-t").value = data.recommended_plate.thickness;
+    } else {
+      document.getElementById("stock-w").value = data.recommended_box.width;
+      document.getElementById("stock-l").value = data.recommended_box.length;
+      document.getElementById("stock-t").value = data.recommended_box.thickness;
+    }
+  }
+
+  renderCurrentStockMesh();
+  renderAnalysisOutlines(data);
+
+  const desc = data.shape_description || "Design";
+  document.getElementById("status-text").textContent = `Analysis: ${desc} detected (${data.footprint_area_mm2.toFixed(0)} mm², Ø${data.min_cylinder_diameter_mm.toFixed(1)}mm). Material silhouette fitted.`;
+}
+
 // Render 2D Footprint Silhouette & 3D Feature Edge Curves
 function renderAnalysisOutlines(data) {
-  // Clear previous outlines
   while (silhouetteOutlineGroup.children.length > 0) {
     silhouetteOutlineGroup.remove(silhouetteOutlineGroup.children[0]);
   }
@@ -619,14 +689,16 @@ function renderAnalysisOutlines(data) {
     featureEdgesGroup.scale.copy(currentMesh.scale);
   }
 
-  // Check visibility toggles
   silhouetteOutlineGroup.visible = document.getElementById("chk-show-silhouette").checked;
   featureEdgesGroup.visible = document.getElementById("chk-show-feature-edges").checked;
 }
 
 // Auto-Fit Raw Stock Dimensions around current design
 function autoFitStockToDesign() {
-  if (!latestAnalysis) return;
+  if (!latestAnalysis) {
+    runDesignAnalysis(true);
+    return;
+  }
 
   const shape = document.getElementById("stock-shape").value;
   if (shape === "cylinder" || shape === "round_plate") {
@@ -658,6 +730,23 @@ function setupStockAndAnalysisControls() {
     boxDims.style.display = (val === "box" || val === "plate") ? "block" : "none";
     cylDims.style.display = (val === "cylinder" || val === "round_plate") ? "block" : "none";
     conformingDims.style.display = (val === "conforming") ? "block" : "none";
+
+    // Auto-update dimensions when shape changes if analysis exists
+    if (latestAnalysis) {
+      if ((val === "cylinder" || val === "round_plate") && latestAnalysis.recommended_cylinder) {
+        document.getElementById("stock-d").value = latestAnalysis.recommended_cylinder.diameter;
+        document.getElementById("stock-t").value = latestAnalysis.recommended_cylinder.thickness;
+      } else if (val === "plate" && latestAnalysis.recommended_plate) {
+        document.getElementById("stock-w").value = latestAnalysis.recommended_plate.width;
+        document.getElementById("stock-l").value = latestAnalysis.recommended_plate.length;
+        document.getElementById("stock-t").value = latestAnalysis.recommended_plate.thickness;
+      } else if (val === "box" && latestAnalysis.recommended_box) {
+        document.getElementById("stock-w").value = latestAnalysis.recommended_box.width;
+        document.getElementById("stock-l").value = latestAnalysis.recommended_box.length;
+        document.getElementById("stock-t").value = latestAnalysis.recommended_box.thickness;
+      }
+    }
+
     renderCurrentStockMesh();
   });
 
@@ -677,40 +766,23 @@ function setupStockAndAnalysisControls() {
   });
 
   // Analysis run & preset buttons
-  document.getElementById("btn-run-analysis").addEventListener("click", runDesignAnalysis);
+  document.getElementById("btn-run-analysis").addEventListener("click", () => runDesignAnalysis(false));
   const btnAnalyzeHeader = document.getElementById("btn-analyze-model");
-  if (btnAnalyzeHeader) btnAnalyzeHeader.addEventListener("click", runDesignAnalysis);
+  if (btnAnalyzeHeader) btnAnalyzeHeader.addEventListener("click", () => runDesignAnalysis(false));
 
   document.getElementById("btn-apply-rec-box").addEventListener("click", () => {
     shapeSelect.value = "box";
     shapeSelect.dispatchEvent(new Event("change"));
-    if (latestAnalysis) {
-      document.getElementById("stock-w").value = latestAnalysis.recommended_box.width;
-      document.getElementById("stock-l").value = latestAnalysis.recommended_box.length;
-      document.getElementById("stock-t").value = latestAnalysis.recommended_box.thickness;
-      renderCurrentStockMesh();
-    }
   });
 
   document.getElementById("btn-apply-rec-cylinder").addEventListener("click", () => {
-    shapeSelect.value = "cylinder";
+    shapeSelect.value = "round_plate";
     shapeSelect.dispatchEvent(new Event("change"));
-    if (latestAnalysis) {
-      document.getElementById("stock-d").value = latestAnalysis.recommended_cylinder.diameter;
-      document.getElementById("stock-t").value = latestAnalysis.recommended_cylinder.thickness;
-      renderCurrentStockMesh();
-    }
   });
 
   document.getElementById("btn-apply-rec-plate").addEventListener("click", () => {
     shapeSelect.value = "plate";
     shapeSelect.dispatchEvent(new Event("change"));
-    if (latestAnalysis) {
-      document.getElementById("stock-w").value = latestAnalysis.recommended_plate.width;
-      document.getElementById("stock-l").value = latestAnalysis.recommended_plate.length;
-      document.getElementById("stock-t").value = latestAnalysis.recommended_plate.thickness;
-      renderCurrentStockMesh();
-    }
   });
 
   // Outline visibility toggles
@@ -747,7 +819,7 @@ function setupCrealityControls() {
     document.getElementById("tf-rot-y").value = "0";
     document.getElementById("tf-rot-z").value = "0";
     syncUIToMesh();
-    runDesignAnalysis();
+    runDesignAnalysis(false);
   });
 
   const uniformChk = document.getElementById("tf-scale-uniform");
@@ -763,7 +835,7 @@ function setupCrealityControls() {
       }
       syncUIToMesh();
     });
-    input.addEventListener("change", runDesignAnalysis);
+    input.addEventListener("change", () => runDesignAnalysis(false));
   });
 
   document.getElementById("btn-drawer-fit").addEventListener("click", autoFitModelIntoStock);
@@ -772,7 +844,7 @@ function setupCrealityControls() {
     document.getElementById("tf-scale-y").value = "100";
     document.getElementById("tf-scale-z").value = "100";
     syncUIToMesh();
-    runDesignAnalysis();
+    runDesignAnalysis(false);
   });
 
   document.getElementById("btn-mirror-x").addEventListener("click", () => mirrorAxis("x"));
@@ -814,7 +886,7 @@ async function loadSamplePyramid() {
       document.getElementById("stock-l").value = 70;
       document.getElementById("stock-t").value = 32;
       document.getElementById("stock-d").value = 90;
-      display3DMesh(data.vertices, data.faces, data.metadata);
+      display3DMesh(data.vertices, data.faces, data.metadata, data.analysis);
     }
   } catch (err) {
     console.error("Failed to load sample pyramid:", err);
@@ -841,17 +913,7 @@ async function uploadStlFile(file) {
       return;
     }
 
-    const autoW = Math.ceil(data.metadata.width + 10);
-    const autoL = Math.ceil(data.metadata.length + 10);
-    const autoT = Math.ceil(data.metadata.height + 2);
-    const autoD = Math.ceil(Math.sqrt(autoW * autoW + autoL * autoL));
-
-    document.getElementById("stock-w").value = autoW;
-    document.getElementById("stock-l").value = autoL;
-    document.getElementById("stock-t").value = autoT;
-    document.getElementById("stock-d").value = autoD;
-
-    display3DMesh(data.vertices, data.faces, data.metadata);
+    display3DMesh(data.vertices, data.faces, data.metadata, data.analysis);
   } catch (err) {
     console.error("Upload error:", err);
     alert("Upload failed. See console.");
