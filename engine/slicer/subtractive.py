@@ -85,14 +85,16 @@ class SubtractiveSlicer:
         for idx, z in enumerate(depths):
             layer = ToolpathLayer(layer_index=idx, nominal_z=z)
 
-            # 1. Slice 3D mesh at plane Z = z
+            # 1. Slice 3D mesh at plane Z = z (preserving global machine XY coordinates)
             slice_section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
 
-            if slice_section is not None:
-                slice_2d, _ = slice_section.to_2D()
+            if slice_section is not None and len(slice_section.vertices) > 0:
+                # Use section 3D vertices projected onto XY directly.
+                # (Avoid slice_section.to_2D() as to_2D() resets coordinates to local 0,0!)
+                verts_2d = slice_section.vertices[:, :2]
                 part_polys = []
-                for entity in slice_2d.entities:
-                    disc = entity.discrete(slice_2d.vertices)
+                for entity in slice_section.entities:
+                    disc = entity.discrete(verts_2d)
                     if len(disc) >= 3:
                         poly = sg.Polygon(disc)
                         if poly.is_valid and poly.area > 0.01:
