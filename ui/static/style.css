@@ -757,3 +757,52 @@ input[type="range"][orient="vertical"] {
   font-size: 11px;
   opacity: 0.85;
 }
+
+/* Machine Mounting & Clamping Coordinates Guide */
+.mounting-guide-card {
+  margin-top: 10px;
+  background: #151921;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.mounting-guide-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #38bdf8;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mounting-guide-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.mounting-guide-row:last-child {
+  margin-bottom: 0;
+}
+
+.guide-label {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.coord-badge {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #34d399;
+  background: #0b101b;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #1e293b;
+}

@@ -122,6 +122,9 @@
           <div class="checkbox-row">
             <label><input type="checkbox" id="chk-show-bed-features" checked> T-Tracks / Clamping Dogholes</label>
           </div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-bed-numbers" checked> Bed Positioning Rulers & Numbers</label>
+          </div>
         </div>
 
         <!-- Panel 1: Inserted Model Info -->
@@ -306,6 +309,19 @@
           <div class="control-group" style="margin-top: 8px;">
             <label>LiDAR Surface Flatness:</label>
             <div class="metric-val" id="surface-warp-val">0.08 mm (Auto-Leveled)</div>
+          </div>
+
+          <!-- Real Machine Mounting & Clamping Coordinates -->
+          <div class="mounting-guide-card" id="stock-clamping-card">
+            <div class="mounting-guide-title">📍 Machine Clamping Coordinates</div>
+            <div class="mounting-guide-row">
+              <span class="guide-label">Work Origin (G54):</span>
+              <span id="clamp-span-center" class="coord-badge">X: [-35.0, +35.0] Y: [-35.0, +35.0] mm</span>
+            </div>
+            <div class="mounting-guide-row">
+              <span class="guide-label">Physical Spoilboard:</span>
+              <span id="clamp-span-corner" class="coord-badge">X: [115.0, 185.0] Y: [55.0, 125.0] mm</span>
+            </div>
           </div>
         </div>
 

@@ -17,6 +17,7 @@ let currentMachine = null;
 let machinesList = [];
 let travelCageMesh = null;
 let bedFeaturesMesh = null;
+let bedNumbersMesh = null;
 
 // Initialize Three.js 3D Viewport
 function initViewport() {
@@ -159,6 +160,463 @@ function createMachineNameplateTexture(name, dims) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
   return texture;
+}
+
+// Helper: Determine spacing of ruler millimeter markings based on bed dimension
+function getRulerStepInfo(dim) {
+  let minorStep = 10;
+  let midStep = 25;
+  let majorStep = 50;
+
+  if (dim <= 150) {
+    minorStep = 5;
+    midStep = 10;
+    majorStep = 25;
+  } else if (dim <= 320) {
+    minorStep = 10;
+    midStep = 25;
+    majorStep = 50;
+  } else if (dim <= 650) {
+    minorStep = 10;
+    midStep = 25;
+    majorStep = 50;
+  } else {
+    minorStep = 25;
+    midStep = 50;
+    majorStep = 100;
+  }
+  return { minorStep, midStep, majorStep };
+}
+
+// Safely draw rounded rectangle in Canvas 2D
+function drawCanvasRoundRect(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+}
+
+// Generate High-Precision Metric Ruler Texture for X-Axis (Front or Rear Edge)
+function createRulerTextureX(w, isRear = false) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 2048;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+
+  const { minorStep, midStep, majorStep } = getRulerStepInfo(w);
+  const xMin = -w / 2;
+
+  // Dark metallic ruler background
+  ctx.fillStyle = "#111319";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Subtle brushed metallic band
+  ctx.fillStyle = "#181c25";
+  ctx.fillRect(0, 3, canvas.width, canvas.height - 6);
+
+  // Grid border baseline (facing bed interior)
+  const tickBaseY = isRear ? canvas.height - 2 : 2;
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(0, isRear ? canvas.height - 4 : 2, canvas.width, 3);
+
+  // Outer edge trim
+  ctx.fillStyle = "#334155";
+  ctx.fillRect(0, isRear ? 1 : canvas.height - 3, canvas.width, 2);
+
+  const startX = Math.ceil(xMin / minorStep) * minorStep;
+  const endX = Math.floor((w / 2) / minorStep) * minorStep;
+
+  for (let x = startX; x <= endX; x += minorStep) {
+    const u = ((x - xMin) / w) * canvas.width;
+    if (u < 4 || u > canvas.width - 4) continue;
+
+    const isMajor = Math.abs(x) % majorStep === 0 || Math.abs(Math.round(x) % majorStep) === 0;
+    const isMid = !isMajor && (Math.abs(x) % midStep === 0 || Math.abs(Math.round(x) % midStep) === 0);
+
+    let tickLen = 22;
+    if (isMajor) tickLen = 52;
+    else if (isMid) tickLen = 34;
+
+    const yStart = tickBaseY;
+    const yEnd = isRear ? tickBaseY - tickLen : tickBaseY + tickLen;
+
+    ctx.beginPath();
+    ctx.moveTo(u, yStart);
+    ctx.lineTo(u, yEnd);
+
+    if (isMajor) {
+      ctx.strokeStyle = (Math.abs(x) < 0.001) ? "#00f0ff" : "#38bdf8";
+      ctx.lineWidth = (Math.abs(x) < 0.001) ? 5 : 3;
+    } else if (isMid) {
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 2;
+    } else {
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 1.2;
+    }
+    ctx.stroke();
+
+    // Major numbers
+    if (isMajor) {
+      const isZero = Math.abs(x) < 0.001;
+      const primaryText = isZero ? "0 (CTR)" : (x > 0 ? `+${Math.round(x)}` : `${Math.round(x)}`);
+      const cornerMm = Math.round(x + w / 2);
+      const subText = `(${cornerMm})`;
+
+      ctx.save();
+      ctx.textAlign = "center";
+
+      if (!isRear) {
+        ctx.fillStyle = isZero ? "#00f0ff" : "#ffffff";
+        ctx.font = "bold 28px Consolas, monospace";
+        ctx.textBaseline = "top";
+        ctx.fillText(primaryText, u, 56);
+
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "16px Consolas, monospace";
+        ctx.fillText(subText, u, 92);
+      } else {
+        ctx.fillStyle = isZero ? "#00f0ff" : "#ffffff";
+        ctx.font = "bold 28px Consolas, monospace";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(primaryText, u, canvas.height - 56);
+
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "16px Consolas, monospace";
+        ctx.fillText(subText, u, canvas.height - 92);
+      }
+      ctx.restore();
+    }
+  }
+
+  // End Indicators
+  ctx.font = "bold 18px Consolas, monospace";
+  ctx.fillStyle = "#38bdf8";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.fillText("◄ -X (mm)", 14, canvas.height / 2);
+  ctx.textAlign = "right";
+  ctx.fillText("+X (mm) ►", canvas.width - 14, canvas.height / 2);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  if (renderer && renderer.capabilities) {
+    tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  }
+  return tex;
+}
+
+// Generate High-Precision Metric Ruler Texture for Y-Axis (Left or Right Edge)
+function createRulerTextureY(l, isRight = false) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 2048;
+  const ctx = canvas.getContext("2d");
+
+  const { minorStep, midStep, majorStep } = getRulerStepInfo(l);
+  const yMin = -l / 2;
+
+  // Background
+  ctx.fillStyle = "#111319";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "#181c25";
+  ctx.fillRect(3, 0, canvas.width - 6, canvas.height);
+
+  // Baseline on side facing bed interior
+  const tickBaseX = isRight ? 2 : canvas.width - 2;
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(isRight ? 2 : canvas.width - 5, 0, 3, canvas.height);
+
+  ctx.fillStyle = "#334155";
+  ctx.fillRect(isRight ? canvas.width - 3 : 1, 0, 2, canvas.height);
+
+  const startY = Math.ceil(yMin / minorStep) * minorStep;
+  const endY = Math.floor((l / 2) / minorStep) * minorStep;
+
+  for (let y = startY; y <= endY; y += minorStep) {
+    // In Three.js PlaneGeometry, +Y is top of plane (row 0 in canvas), -Y is bottom (row 2048).
+    const v = ((l / 2 - y) / l) * canvas.height;
+    if (v < 4 || v > canvas.height - 4) continue;
+
+    const isMajor = Math.abs(y) % majorStep === 0 || Math.abs(Math.round(y) % majorStep) === 0;
+    const isMid = !isMajor && (Math.abs(y) % midStep === 0 || Math.abs(Math.round(y) % midStep) === 0);
+
+    let tickLen = 22;
+    if (isMajor) tickLen = 52;
+    else if (isMid) tickLen = 34;
+
+    const xStart = tickBaseX;
+    const xEnd = isRight ? tickBaseX + tickLen : tickBaseX - tickLen;
+
+    ctx.beginPath();
+    ctx.moveTo(xStart, v);
+    ctx.lineTo(xEnd, v);
+
+    if (isMajor) {
+      ctx.strokeStyle = (Math.abs(y) < 0.001) ? "#00f0ff" : "#38bdf8";
+      ctx.lineWidth = (Math.abs(y) < 0.001) ? 5 : 3;
+    } else if (isMid) {
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 2;
+    } else {
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 1.2;
+    }
+    ctx.stroke();
+
+    // Major numbers
+    if (isMajor) {
+      const isZero = Math.abs(y) < 0.001;
+      const primaryText = isZero ? "0" : (y > 0 ? `+${Math.round(y)}` : `${Math.round(y)}`);
+      const cornerMm = Math.round(y + l / 2);
+      const subText = `(${cornerMm})`;
+
+      const textCenterX = isRight ? 86 : 42;
+
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.fillStyle = isZero ? "#00f0ff" : "#ffffff";
+      ctx.font = "bold 24px Consolas, monospace";
+      ctx.fillText(primaryText, textCenterX, v - 10);
+
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "16px Consolas, monospace";
+      ctx.fillText(subText, textCenterX, v + 12);
+      ctx.restore();
+    }
+  }
+
+  // End Indicators
+  ctx.font = "bold 16px Consolas, monospace";
+  ctx.fillStyle = "#38bdf8";
+  ctx.textAlign = "center";
+  ctx.fillText("▲ +Y", canvas.width / 2, 28);
+  ctx.fillText("▼ -Y", canvas.width / 2, canvas.height - 24);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  if (renderer && renderer.capabilities) {
+    tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  }
+  return tex;
+}
+
+// High-Contrast Coordinate Badge for Internal Bed Grid
+function createCoordinateBadgeMesh(text, color = "#ffffff", bgColor = "rgba(15, 23, 42, 0.88)") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 48;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = bgColor;
+  drawCanvasRoundRect(ctx, 2, 2, canvas.width - 4, canvas.height - 4, 10);
+  ctx.fill();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  ctx.font = "bold 24px Consolas, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+
+  const geo = new THREE.PlaneGeometry(16, 6);
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+  return new THREE.Mesh(geo, mat);
+}
+
+// Center Work Zero (G54) Bullseye & Origin Reticle
+function createCenterOriginTarget() {
+  const group = new THREE.Group();
+
+  const ringPts = [];
+  // Outer circle 12mm
+  for (let a = 0; a <= 36; a++) {
+    const theta = (a / 36) * Math.PI * 2;
+    ringPts.push(new THREE.Vector3(12 * Math.cos(theta), 12 * Math.sin(theta), 0.06));
+  }
+  // Inner circle 5mm
+  for (let a = 0; a <= 36; a++) {
+    const theta = (a / 36) * Math.PI * 2;
+    ringPts.push(new THREE.Vector3(5 * Math.cos(theta), 5 * Math.sin(theta), 0.06));
+  }
+  const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPts);
+  const ringMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 2.2 });
+  group.add(new THREE.Line(ringGeo, ringMat));
+
+  // Crosshair lines
+  const crossPts = [
+    new THREE.Vector3(-18, 0, 0.06), new THREE.Vector3(18, 0, 0.06),
+    new THREE.Vector3(0, -18, 0.06), new THREE.Vector3(0, 18, 0.06)
+  ];
+  const crossGeo = new THREE.BufferGeometry().setFromPoints(crossPts);
+  const crossMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 2.5 });
+  group.add(new THREE.LineSegments(crossGeo, crossMat));
+
+  // Center Badge
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(10, 15, 25, 0.92)";
+  drawCanvasRoundRect(ctx, 2, 2, canvas.width - 4, canvas.height - 4, 12);
+  ctx.fill();
+  ctx.strokeStyle = "#00f0ff";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = "#00f0ff";
+  ctx.font = "bold 22px Consolas, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("⨁ (0, 0) WORK ZERO", canvas.width / 2, canvas.height / 2);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  const badgeGeo = new THREE.PlaneGeometry(36, 9);
+  const badgeMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+  const badge = new THREE.Mesh(badgeGeo, badgeMat);
+  badge.position.set(0, -16, 0.06);
+  group.add(badge);
+
+  return group;
+}
+
+// Machine Corner Origin (0,0 Spoilboard Corner) Marker
+function createCornerHomeMarker(w, l) {
+  const group = new THREE.Group();
+  const cx = -w / 2;
+  const cy = -l / 2;
+
+  const lPts = [
+    new THREE.Vector3(cx, cy, 0.06), new THREE.Vector3(cx + 25, cy, 0.06),
+    new THREE.Vector3(cx, cy, 0.06), new THREE.Vector3(cx, cy + 25, 0.06)
+  ];
+  const lGeo = new THREE.BufferGeometry().setFromPoints(lPts);
+  const lMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 3 });
+  group.add(new THREE.LineSegments(lGeo, lMat));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(24, 18, 10, 0.92)";
+  drawCanvasRoundRect(ctx, 2, 2, canvas.width - 4, canvas.height - 4, 12);
+  ctx.fill();
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = "#f59e0b";
+  ctx.font = "bold 20px Consolas, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("📐 MACHINE (0, 0)", canvas.width / 2, canvas.height / 2);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  const badgeGeo = new THREE.PlaneGeometry(34, 8.5);
+  const badgeMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+  const badge = new THREE.Mesh(badgeGeo, badgeMat);
+  badge.position.set(cx + 22, cy + 22, 0.06);
+  group.add(badge);
+
+  return group;
+}
+
+// Assemble Complete Bed Positioning Rulers & Numbers System
+function createBedPositioningRulers(machine) {
+  const w = machine ? machine.bed_width_x : 300;
+  const l = machine ? machine.bed_length_y : 180;
+
+  const rulersGroup = new THREE.Group();
+  rulersGroup.name = "bedNumbersGroup";
+
+  const rulerThickness = 12;
+
+  // 1. Front X-Axis Ruler Strip
+  const frontTex = createRulerTextureX(w, false);
+  const frontGeo = new THREE.PlaneGeometry(w, rulerThickness);
+  const frontMat = new THREE.MeshBasicMaterial({ map: frontTex, transparent: true });
+  const frontMesh = new THREE.Mesh(frontGeo, frontMat);
+  frontMesh.position.set(0, -l / 2 + rulerThickness / 2, 0.05);
+  rulersGroup.add(frontMesh);
+
+  // 2. Left Y-Axis Ruler Strip
+  const leftTex = createRulerTextureY(l, false);
+  const leftGeo = new THREE.PlaneGeometry(rulerThickness, l);
+  const leftMat = new THREE.MeshBasicMaterial({ map: leftTex, transparent: true });
+  const leftMesh = new THREE.Mesh(leftGeo, leftMat);
+  leftMesh.position.set(-w / 2 + rulerThickness / 2, 0, 0.05);
+  rulersGroup.add(leftMesh);
+
+  // 3. Rear X-Axis Ruler Strip
+  const rearTex = createRulerTextureX(w, true);
+  const rearGeo = new THREE.PlaneGeometry(w, rulerThickness);
+  const rearMat = new THREE.MeshBasicMaterial({ map: rearTex, transparent: true });
+  const rearMesh = new THREE.Mesh(rearGeo, rearMat);
+  rearMesh.position.set(0, l / 2 - rulerThickness / 2, 0.05);
+  rulersGroup.add(rearMesh);
+
+  // 4. Right Y-Axis Ruler Strip
+  const rightTex = createRulerTextureY(l, true);
+  const rightGeo = new THREE.PlaneGeometry(rulerThickness, l);
+  const rightMat = new THREE.MeshBasicMaterial({ map: rightTex, transparent: true });
+  const rightMesh = new THREE.Mesh(rightGeo, rightMat);
+  rightMesh.position.set(w / 2 - rulerThickness / 2, 0, 0.05);
+  rulersGroup.add(rightMesh);
+
+  // 5. Center Work Origin (G54) Bullseye
+  rulersGroup.add(createCenterOriginTarget());
+
+  // 6. Spoilboard Corner Machine Origin Marker
+  rulersGroup.add(createCornerHomeMarker(w, l));
+
+  // 7. Internal Crosshair Coordinate Badges along X=0 and Y=0
+  const { majorStep } = getRulerStepInfo(Math.max(w, l));
+
+  // Along X-Axis (placed at Y = +7mm above X line)
+  const maxBadgeX = w / 2 - 25;
+  for (let x = -Math.floor(maxBadgeX / majorStep) * majorStep; x <= maxBadgeX; x += majorStep) {
+    if (Math.abs(x) < 0.001) continue; // Skip origin (has center target)
+    const signStr = x > 0 ? `+${x}` : `${x}`;
+    const badge = createCoordinateBadgeMesh(`X:${signStr}`, "#38bdf8");
+    badge.position.set(x, 7.5, 0.06);
+    rulersGroup.add(badge);
+  }
+
+  // Along Y-Axis (placed at X = +7mm right of Y line)
+  const maxBadgeY = l / 2 - 25;
+  for (let y = -Math.floor(maxBadgeY / majorStep) * majorStep; y <= maxBadgeY; y += majorStep) {
+    if (Math.abs(y) < 0.001) continue; // Skip origin
+    const signStr = y > 0 ? `+${y}` : `${y}`;
+    const badge = createCoordinateBadgeMesh(`Y:${signStr}`, "#34d399");
+    badge.position.set(7.5, y, 0.06);
+    rulersGroup.add(badge);
+  }
+
+  return rulersGroup;
 }
 
 // Build Authentic CNC Spoilboard Bed based on Machine Profile
@@ -376,6 +834,11 @@ function createBedGrid(machine) {
   axes.renderOrder = 2;
   gridGroup.add(axes);
 
+  // 7. Metric Spoilboard Positioning Rulers & Numbers System
+  const rulersGroup = createBedPositioningRulers(machine);
+  gridGroup.add(rulersGroup);
+  bedNumbersMesh = rulersGroup;
+
   bedGrid = gridGroup;
   scene.add(bedGrid);
 
@@ -384,6 +847,8 @@ function createBedGrid(machine) {
   if (chkCage) travelCageMesh.visible = chkCage.checked;
   const chkFeatures = document.getElementById("chk-show-bed-features");
   if (chkFeatures) bedFeaturesMesh.visible = chkFeatures.checked;
+  const chkNumbers = document.getElementById("chk-show-bed-numbers");
+  if (chkNumbers) bedNumbersMesh.visible = chkNumbers.checked;
 }
 
 // Load Machine Profiles from backend and populate UI
@@ -463,6 +928,8 @@ function updateMachineUI(machine) {
   if (customControls) {
     customControls.style.display = machine.id === "custom_mill" ? "block" : "none";
   }
+
+  updateStockClampingCard();
 }
 
 async function onMachineSelectChanged() {
@@ -546,6 +1013,13 @@ function setupMachineControls() {
   if (chkFeatures) {
     chkFeatures.addEventListener("change", (e) => {
       if (bedFeaturesMesh) bedFeaturesMesh.visible = e.target.checked;
+    });
+  }
+
+  const chkNumbers = document.getElementById("chk-show-bed-numbers");
+  if (chkNumbers) {
+    chkNumbers.addEventListener("change", (e) => {
+      if (bedNumbersMesh) bedNumbersMesh.visible = e.target.checked;
     });
   }
 
@@ -689,6 +1163,71 @@ function updateStockMesh(shape, w, l, t, dia, cx, cy) {
 
   stockMesh = stockGroup;
   scene.add(stockMesh);
+
+  updateStockClampingCard(shape, w, l, dia, cx, cy);
+}
+
+// Real-time calculation and display of physical machine spoilboard clamping coordinates
+function updateStockClampingCard(shape, w, l, dia, cx, cy) {
+  const spanCenterEl = document.getElementById("clamp-span-center");
+  const spanCornerEl = document.getElementById("clamp-span-corner");
+  if (!spanCenterEl || !spanCornerEl) return;
+
+  const bedW = currentMachine ? currentMachine.bed_width_x : 300;
+  const bedL = currentMachine ? currentMachine.bed_length_y : 180;
+
+  if (shape === undefined) {
+    const shapeEl = document.getElementById("stock-shape");
+    shape = shapeEl ? shapeEl.value : "box";
+  }
+  if (w === undefined) {
+    w = parseFloat(document.getElementById("stock-w")?.value || 70);
+    l = parseFloat(document.getElementById("stock-l")?.value || 70);
+    dia = parseFloat(document.getElementById("stock-d")?.value || 90);
+    cx = (stockMesh && stockMesh.position) ? stockMesh.position.x : 0;
+    cy = (stockMesh && stockMesh.position) ? stockMesh.position.y : 0;
+  }
+
+  let minX, maxX, minY, maxY;
+
+  if (shape === "cylinder" || shape === "round_plate") {
+    const r = dia / 2;
+    minX = cx - r;
+    maxX = cx + r;
+    minY = cy - r;
+    maxY = cy + r;
+  } else if (shape === "conforming" && latestAnalysis && latestAnalysis.silhouette_exterior && latestAnalysis.silhouette_exterior.length > 2) {
+    let pts = latestAnalysis.silhouette_exterior;
+    let localMinX = Infinity, localMaxX = -Infinity, localMinY = Infinity, localMaxY = -Infinity;
+    pts.forEach(p => {
+      if (p[0] < localMinX) localMinX = p[0];
+      if (p[0] > localMaxX) localMaxX = p[0];
+      if (p[1] < localMinY) localMinY = p[1];
+      if (p[1] > localMaxY) localMaxY = p[1];
+    });
+    const margin = parseFloat(document.getElementById("stock-conforming-margin")?.value || 5.0);
+    minX = cx + localMinX - margin;
+    maxX = cx + localMaxX + margin;
+    minY = cy + localMinY - margin;
+    maxY = cy + localMaxY + margin;
+  } else {
+    // Box or plate
+    minX = cx - w / 2;
+    maxX = cx + w / 2;
+    minY = cy - l / 2;
+    maxY = cy + l / 2;
+  }
+
+  // Corner relative coordinates (from physical machine spoilboard corner at -bedW/2, -bedL/2)
+  const cornerMinX = minX + bedW / 2;
+  const cornerMaxX = maxX + bedW / 2;
+  const cornerMinY = minY + bedL / 2;
+  const cornerMaxY = maxY + bedL / 2;
+
+  const fmtSign = (v) => (v >= 0 ? `+${v.toFixed(1)}` : `${v.toFixed(1)}`);
+
+  spanCenterEl.textContent = `X: [${fmtSign(minX)}, ${fmtSign(maxX)}] Y: [${fmtSign(minY)}, ${fmtSign(maxY)}] mm`;
+  spanCornerEl.textContent = `X: [${cornerMinX.toFixed(1)}, ${cornerMaxX.toFixed(1)}] Y: [${cornerMinY.toFixed(1)}, ${cornerMaxY.toFixed(1)}] mm`;
 }
 
 // Keep stock and silhouette outline positions synchronized with model
@@ -710,6 +1249,7 @@ function syncStockToModelPosition() {
   }
 
   document.getElementById("stock-pos").value = `X: ${currentMesh.position.x.toFixed(1)}, Y: ${currentMesh.position.y.toFixed(1)}`;
+  updateStockClampingCard();
 }
 
 // Load 3D Mesh into Scene
@@ -1158,7 +1698,7 @@ function setupStockAndAnalysisControls() {
   });
 
   // Re-render stock on dimension input changes
-  ["stock-w", "stock-l", "stock-t", "stock-d"].forEach((id) => {
+  ["stock-w", "stock-l", "stock-t", "stock-d", "stock-conforming-margin"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener("input", renderCurrentStockMesh);
   });
