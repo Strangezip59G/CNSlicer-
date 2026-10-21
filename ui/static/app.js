@@ -1531,40 +1531,8 @@ function mirrorAxis(axis) {
 
 // Smart Auto-Pilot: Automatically select tool, strategy, cutting parameters, and speeds & feeds
 async function runAutoMode() {
-  document.getElementById("status-text").textContent = "⚡ Auto Mode: Analyzing geometry and optimizing toolpaths, tooling, and feeds...";
-
-  try {
-    const payload = {
-      machine_id: currentMachine ? currentMachine.id : "genmitsu_3018",
-      rot_x: parseFloat(document.getElementById("tf-rot-x") ? document.getElementById("tf-rot-x").value : 0),
-      rot_y: parseFloat(document.getElementById("tf-rot-y") ? document.getElementById("tf-rot-y").value : 0),
-      rot_z: parseFloat(document.getElementById("tf-rot-z") ? document.getElementById("tf-rot-z").value : 0),
-      scale_x: parseFloat(document.getElementById("tf-scale-x") ? document.getElementById("tf-scale-x").value : 100) / 100,
-      scale_y: parseFloat(document.getElementById("tf-scale-y") ? document.getElementById("tf-scale-y").value : 100) / 100,
-      scale_z: parseFloat(document.getElementById("tf-scale-z") ? document.getElementById("tf-scale-z").value : 100) / 100,
-    };
-
-    const res = await fetch("/api/slicer/auto_setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!data.success) {
-      document.getElementById("status-text").textContent = `Auto Mode Error: ${data.error || "Failed to calculate auto setup"}`;
-      return;
-    }
-
-    applyAutoModeRecommendations(data);
-
-    // Also trigger design analysis outlines if not yet generated
-    if (!latestAnalysis) {
-      runDesignAnalysis(false);
-    }
-  } catch (err) {
-    console.error("Auto Mode failed:", err);
-    document.getElementById("status-text").textContent = "Auto Mode failed: Unable to connect to slicer backend.";
-  }
+  switchStudioTab("tab-auto-optimizer");
+  applyOptimizerToolpath();
 }
 
 function applyAutoModeRecommendations(data) {
@@ -2456,6 +2424,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Collapsible Accordion Panels
   setupCollapsiblePanels();
+
+  // Setup Auto-Machining Optimizer Studio
+  setupAutoOptimizerStudio();
 });
 
 // Setup accordion collapsible panels for polished, decluttered sidebar
@@ -2468,4 +2439,306 @@ function setupCollapsiblePanels() {
       }
     });
   });
+}
+
+// ==========================================================================
+// Auto-Machining Multi-Objective Optimizer Studio Suite
+// ==========================================================================
+let optState = {
+  profile: "balanced",
+  material: "wood_mdf",
+  finish: "standard"
+};
+
+let latestOptimizerData = null;
+
+function setupAutoOptimizerStudio() {
+  // 1. Studio Tab Switching
+  const tabManual = document.getElementById("tab-btn-manual");
+  const tabAuto = document.getElementById("tab-btn-auto-optimizer");
+  if (tabManual) tabManual.addEventListener("click", () => switchStudioTab("tab-manual"));
+  if (tabAuto) tabAuto.addEventListener("click", () => switchStudioTab("tab-auto-optimizer"));
+
+  // 2. Optimization Profile Cards
+  document.querySelectorAll(".opt-profile-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".opt-profile-card").forEach((c) => c.classList.remove("active"));
+      card.classList.add("active");
+      optState.profile = card.dataset.profile || "balanced";
+      runOptimizerAnalysis();
+    });
+  });
+
+  // 3. Material Selection Dropdown
+  const matSelect = document.getElementById("opt-material-select");
+  if (matSelect) {
+    matSelect.addEventListener("change", (e) => {
+      optState.material = e.target.value;
+      updateMaterialPreview(e.target.value);
+      runOptimizerAnalysis();
+    });
+  }
+
+  // 4. Required Finish Pills
+  document.querySelectorAll(".finish-pill-btn").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      document.querySelectorAll(".finish-pill-btn").forEach((p) => p.classList.remove("active"));
+      pill.classList.add("active");
+      optState.finish = pill.dataset.finish || "standard";
+      runOptimizerAnalysis();
+    });
+  });
+
+  // 5. G-Code & Path Smoothing Checkboxes
+  ["opt-chk-arc-fitting", "opt-chk-micro-filter", "opt-chk-collinear-merge", "opt-chk-corner-decel"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("change", runOptimizerAnalysis);
+  });
+
+  // 6. Action Buttons
+  const btnRecalc = document.getElementById("btn-opt-recalc");
+  if (btnRecalc) btnRecalc.addEventListener("click", runOptimizerAnalysis);
+  const btnApply = document.getElementById("btn-opt-apply");
+  if (btnApply) btnApply.addEventListener("click", applyOptimizerToolpath);
+}
+
+// Switch between Manual CAM Studio and Auto-Machining Optimizer
+function switchStudioTab(tabId) {
+  const tabManual = document.getElementById("tab-btn-manual");
+  const tabAuto = document.getElementById("tab-btn-auto-optimizer");
+  const sideManual = document.getElementById("sidebar-manual-cam");
+  const sideAuto = document.getElementById("sidebar-auto-optimizer");
+
+  if (tabId === "tab-auto-optimizer") {
+    if (tabManual) tabManual.classList.remove("active");
+    if (tabAuto) tabAuto.classList.add("active");
+    if (sideManual) sideManual.style.display = "none";
+    if (sideAuto) sideAuto.style.display = "flex";
+
+    runOptimizerAnalysis();
+  } else {
+    if (tabAuto) tabAuto.classList.remove("active");
+    if (tabManual) tabManual.classList.add("active");
+    if (sideAuto) sideAuto.style.display = "none";
+    if (sideManual) sideManual.style.display = "flex";
+  }
+}
+
+// Update material physical properties preview
+function updateMaterialPreview(matKey) {
+  const preview = document.getElementById("opt-mat-preview");
+  if (!preview) return;
+
+  const matData = {
+    wood_mdf: { density: "0.75 g/cm³", coolant: "Dry Dust Extr.", chip: "0.04–0.12 mm/t" },
+    plastic_delrin: { density: "1.41 g/cm³", coolant: "Cold Air / Dry", chip: "0.035–0.09 mm/t" },
+    aluminum_6061: { density: "2.70 g/cm³", coolant: "Alcohol Mist / WD40", chip: "0.02–0.055 mm/t" },
+    steel_mild: { density: "7.85 g/cm³", coolant: "Flood Coolant / Mist", chip: "0.012–0.03 mm/t" }
+  };
+
+  const info = matData[matKey] || matData.wood_mdf;
+  preview.innerHTML = `
+    <span class="mat-prop-item"><b>Density:</b> ${info.density}</span>
+    <span class="mat-prop-item"><b>Coolant:</b> ${info.coolant}</span>
+    <span class="mat-prop-item"><b>Chipload:</b> ${info.chip}</span>
+  `;
+}
+
+// Fetch and render multi-objective trade-off metrics
+async function runOptimizerAnalysis() {
+  document.getElementById("status-text").textContent = "⚡ Auto-Machining Optimizer: Calculating Pareto trade-offs across speed, tool life & finish...";
+
+  try {
+    const payload = {
+      profile: optState.profile,
+      material: optState.material,
+      finish: optState.finish,
+      gcode_opts: {
+        arc_fitting: document.getElementById("opt-chk-arc-fitting") ? document.getElementById("opt-chk-arc-fitting").checked : true,
+        micro_filter: document.getElementById("opt-chk-micro-filter") ? document.getElementById("opt-chk-micro-filter").checked : true,
+        collinear_merge: document.getElementById("opt-chk-collinear-merge") ? document.getElementById("opt-chk-collinear-merge").checked : true,
+        corner_decel: document.getElementById("opt-chk-corner-decel") ? document.getElementById("opt-chk-corner-decel").checked : true
+      },
+      machine_id: currentMachine ? currentMachine.id : "genmitsu_3018",
+      rot_x: parseFloat(document.getElementById("tf-rot-x") ? document.getElementById("tf-rot-x").value : 0),
+      rot_y: parseFloat(document.getElementById("tf-rot-y") ? document.getElementById("tf-rot-y").value : 0),
+      rot_z: parseFloat(document.getElementById("tf-rot-z") ? document.getElementById("tf-rot-z").value : 0),
+      scale_x: parseFloat(document.getElementById("tf-scale-x") ? document.getElementById("tf-scale-x").value : 100) / 100,
+      scale_y: parseFloat(document.getElementById("tf-scale-y") ? document.getElementById("tf-scale-y").value : 100) / 100,
+      scale_z: parseFloat(document.getElementById("tf-scale-z") ? document.getElementById("tf-scale-z").value : 100) / 100
+    };
+
+    const res = await fetch("/api/optimizer/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) {
+      document.getElementById("status-text").textContent = `Optimizer: ${data.error || "Failed to analyze"}`;
+      return;
+    }
+
+    latestOptimizerData = data;
+    renderOptimizerAnalysis(data);
+  } catch (err) {
+    console.error("Optimizer analysis error:", err);
+  }
+}
+
+// Render Comparative Metrics & Engineering Rationales
+function renderOptimizerAnalysis(data) {
+  const base = data.baseline;
+  const opt = data.optimized;
+  const imp = data.improvements;
+
+  // 1. Hero Summary Pill & Header Status
+  const summaryText = document.getElementById("opt-summary-text");
+  if (summaryText) summaryText.textContent = data.summary_pill;
+  const statusProfile = document.getElementById("opt-status-profile");
+  if (statusProfile) statusProfile.textContent = data.profile.charAt(0).toUpperCase() + data.profile.slice(1);
+  const statusMat = document.getElementById("opt-status-material");
+  if (statusMat) statusMat.textContent = data.material_name;
+  const statusTime = document.getElementById("opt-status-time");
+  if (statusTime) statusTime.textContent = `${opt.cycle_time_min.toFixed(1)} min (-${imp.time_savings_pct}%)`;
+
+  // 2. Comparison Matrix Cards
+  const elBaseTime = document.getElementById("comp-base-time");
+  if (elBaseTime) elBaseTime.textContent = `${base.cycle_time_min.toFixed(1)} min`;
+  const elOptTime = document.getElementById("comp-opt-time");
+  if (elOptTime) elOptTime.textContent = `${opt.cycle_time_min.toFixed(1)} min`;
+  const elDeltaTime = document.getElementById("delta-time");
+  if (elDeltaTime) elDeltaTime.textContent = `-${imp.time_savings_pct}% Cycle Time`;
+
+  const elBaseTool = document.getElementById("comp-base-tool");
+  if (elBaseTool) elBaseTool.textContent = `${base.tool_life_score_pct.toFixed(0)}%`;
+  const elOptTool = document.getElementById("comp-opt-tool");
+  if (elOptTool) elOptTool.textContent = `${opt.tool_life_score_pct.toFixed(0)}%`;
+  const elDeltaTool = document.getElementById("delta-tool");
+  if (elDeltaTool) elDeltaTool.textContent = `+${imp.tool_life_gain_pct}% Longevity`;
+
+  const elBaseScallop = document.getElementById("comp-base-scallop");
+  if (elBaseScallop) elBaseScallop.textContent = `${base.scallop_height_um.toFixed(1)} µm`;
+  const elOptScallop = document.getElementById("comp-opt-scallop");
+  if (elOptScallop) elOptScallop.textContent = `${opt.scallop_height_um.toFixed(1)} µm`;
+  const elDeltaScallop = document.getElementById("delta-scallop");
+  if (elDeltaScallop) elDeltaScallop.textContent = `-${imp.scallop_reduction_pct}% Scallop`;
+
+  const elBaseEnergy = document.getElementById("comp-base-energy");
+  if (elBaseEnergy) elBaseEnergy.textContent = `${base.energy_consumption_kwh.toFixed(3)} kWh`;
+  const elOptEnergy = document.getElementById("comp-opt-energy");
+  if (elOptEnergy) elOptEnergy.textContent = `${opt.energy_consumption_kwh.toFixed(3)} kWh`;
+  const elDeltaEnergy = document.getElementById("delta-energy");
+  if (elDeltaEnergy) elDeltaEnergy.textContent = `-${imp.energy_savings_pct}% Power`;
+
+  const elBaseLines = document.getElementById("comp-base-lines");
+  if (elBaseLines) elBaseLines.textContent = `${base.gcode_estimated_lines.toLocaleString()} lines (${base.micro_moves_count.toLocaleString()} micro)`;
+  const elOptLines = document.getElementById("comp-opt-lines");
+  if (elOptLines) elOptLines.textContent = `${opt.gcode_estimated_lines.toLocaleString()} lines (${opt.micro_moves_count} micro)`;
+  const elDeltaLines = document.getElementById("delta-lines");
+  if (elDeltaLines) elDeltaLines.textContent = `-${imp.gcode_size_reduction_pct}% G-Code Compression`;
+
+  // 3. The 4 Engineering Rationales
+  const rats = data.rationales;
+  const elRatTime = document.getElementById("rat-time-text");
+  if (elRatTime) elRatTime.textContent = rats.machining_time;
+  const elRatTool = document.getElementById("rat-tool-text");
+  if (elRatTool) elRatTool.textContent = rats.tool_life;
+  const elRatSurf = document.getElementById("rat-surface-text");
+  if (elRatSurf) elRatSurf.textContent = rats.surface_quality;
+  const elRatProd = document.getElementById("rat-prod-text");
+  if (elRatProd) elRatProd.textContent = rats.productivity;
+
+  // 4. Update 3D Cutter preview diameter
+  updateToolMesh(data.tool_diameter_mm || 3.175);
+}
+
+// 1-Click: Optimize, Slice, Fit G2/G3 Arcs & Render 3D Toolpaths
+async function applyOptimizerToolpath() {
+  const applyBtn = document.getElementById("btn-opt-apply");
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    applyBtn.textContent = "⚡ Optimizing & Slicing...";
+  }
+
+  document.getElementById("status-text").textContent = "Auto-Machining Optimizer: Generating optimized multi-pass clearing and fitting G2/G3 circular arcs...";
+
+  try {
+    const payload = {
+      profile: optState.profile,
+      material: optState.material,
+      finish: optState.finish,
+      gcode_opts: {
+        arc_fitting: document.getElementById("opt-chk-arc-fitting") ? document.getElementById("opt-chk-arc-fitting").checked : true,
+        micro_filter: document.getElementById("opt-chk-micro-filter") ? document.getElementById("opt-chk-micro-filter").checked : true,
+        collinear_merge: document.getElementById("opt-chk-collinear-merge") ? document.getElementById("opt-chk-collinear-merge").checked : true,
+        corner_decel: document.getElementById("opt-chk-corner-decel") ? document.getElementById("opt-chk-corner-decel").checked : true
+      },
+      machine_id: currentMachine ? currentMachine.id : "genmitsu_3018",
+      stock_shape: document.getElementById("stock-shape") ? document.getElementById("stock-shape").value : "box",
+      stock_w: parseFloat(document.getElementById("stock-w") ? document.getElementById("stock-w").value : 70),
+      stock_l: parseFloat(document.getElementById("stock-l") ? document.getElementById("stock-l").value : 70),
+      stock_t: parseFloat(document.getElementById("stock-t") ? document.getElementById("stock-t").value : 32),
+      stock_d: parseFloat(document.getElementById("stock-d") ? document.getElementById("stock-d").value : 90),
+      pos_x: parseFloat(document.getElementById("tf-pos-x") ? document.getElementById("tf-pos-x").value : 0),
+      pos_y: parseFloat(document.getElementById("tf-pos-y") ? document.getElementById("tf-pos-y").value : 0),
+      pos_z: parseFloat(document.getElementById("tf-pos-z") ? document.getElementById("tf-pos-z").value : 0),
+      rot_x: parseFloat(document.getElementById("tf-rot-x") ? document.getElementById("tf-rot-x").value : 0),
+      rot_y: parseFloat(document.getElementById("tf-rot-y") ? document.getElementById("tf-rot-y").value : 0),
+      rot_z: parseFloat(document.getElementById("tf-rot-z") ? document.getElementById("tf-rot-z").value : 0),
+      scale_x: parseFloat(document.getElementById("tf-scale-x") ? document.getElementById("tf-scale-x").value : 100) / 100,
+      scale_y: parseFloat(document.getElementById("tf-scale-y") ? document.getElementById("tf-scale-y").value : 100) / 100,
+      scale_z: parseFloat(document.getElementById("tf-scale-z") ? document.getElementById("tf-scale-z").value : 100) / 100
+    };
+
+    const res = await fetch("/api/optimizer/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) {
+      alert("Optimization failed: " + (data.error || "Unknown error"));
+      return;
+    }
+
+    currentSlicingData = data;
+
+    // Render 3D layers in Three.js viewport
+    renderSlicedLayers(data.layers);
+    updateLayerSlider(data.layer_count);
+
+    // Update manual statistics display as well
+    document.getElementById("stat-layers").textContent = data.layer_count;
+    document.getElementById("stat-cut-dist").textContent = `${data.cut_distance_mm.toFixed(0)} mm`;
+    document.getElementById("stat-rapid-dist").textContent = `${data.rapid_distance_mm.toFixed(0)} mm`;
+    document.getElementById("stat-est-time").textContent = `${data.estimated_minutes.toFixed(1)} min`;
+
+    // Synchronize manual inputs with pulse highlights for overrides
+    if (data.recommendation) {
+      applyAutoModeRecommendations(data.recommendation);
+    }
+
+    // Enable G-code inspection & download buttons
+    document.getElementById("btn-view-gcode").disabled = false;
+    document.getElementById("btn-export-gcode").disabled = false;
+
+    // Update status banner
+    const gs = data.gcode_stats;
+    document.getElementById("status-text").textContent = `⚡ Optimization Applied: Sliced in ${data.estimated_minutes.toFixed(1)} min. Fitted ${gs.fitted_arcs_count} G2/G3 arcs, eliminated ${gs.micro_moves_eliminated} micro-moves (${gs.reduction_pct}% G-code reduction).`;
+
+    // Visual pulse on the View G-Code button
+    const viewBtn = document.getElementById("btn-view-gcode");
+    if (viewBtn) {
+      viewBtn.classList.add("auto-highlight");
+      setTimeout(() => viewBtn.classList.remove("auto-highlight"), 2500);
+    }
+  } catch (err) {
+    console.error("Apply optimizer failed:", err);
+  } finally {
+    if (applyBtn) {
+      applyBtn.disabled = false;
+      applyBtn.innerHTML = '<span class="icon">🚀</span> Optimize & Apply Toolpath';
+    }
+  }
 }

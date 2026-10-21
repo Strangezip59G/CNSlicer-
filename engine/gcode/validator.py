@@ -172,7 +172,7 @@ class GCodeValidator:
                     total_rapid_dist += step_dist
                     if new_z >= 2.0:
                         safe_z_retract_observed = True
-                elif active_motion == "G1":
+                elif active_motion in ("G1", "G2", "G3"):
                     cutting_blocks += 1
                     total_cut_dist += step_dist
                     if step_dist < 0.01:

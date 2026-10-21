@@ -192,6 +192,60 @@ class TestServerEndpoints(unittest.TestCase):
         cust_data = cust_res.get_json()
         self.assertEqual(cust_data["active_machine"]["bed_width_x"], 500.0)
 
+    def test_optimizer_options_and_analyze_endpoints(self):
+        # 1. Test options endpoint
+        res = self.client.get("/api/optimizer/options")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("profiles", data)
+        self.assertIn("materials", data)
+        self.assertIn("finishes", data)
+        self.assertIn("balanced", data["profiles"])
+        self.assertIn("aluminum_6061", data["materials"])
+
+        # 2. Load model
+        self.client.get("/api/model/sample_pyramid")
+
+        # 3. Test analyze endpoint
+        an_res = self.client.post("/api/optimizer/analyze", data=json.dumps({
+            "profile": "fastest",
+            "material": "wood_mdf",
+            "finish": "standard"
+        }), content_type="application/json")
+        self.assertEqual(an_res.status_code, 200)
+        an_data = an_res.get_json()
+        self.assertTrue(an_data["success"])
+        self.assertEqual(an_data["profile"], "fastest")
+        self.assertIn("improvements", an_data)
+        self.assertIn("rationales", an_data)
+
+    def test_optimizer_apply_endpoint(self):
+        # Load model
+        self.client.get("/api/model/sample_pyramid")
+
+        # Apply optimized parameters and slice
+        app_res = self.client.post("/api/optimizer/apply", data=json.dumps({
+            "profile": "balanced",
+            "material": "aluminum_6061",
+            "finish": "fine",
+            "stock_shape": "box",
+            "gcode_opts": {"arc_fitting": True, "micro_filter": True}
+        }), content_type="application/json")
+        self.assertEqual(app_res.status_code, 200)
+        app_data = app_res.get_json()
+        self.assertTrue(app_data["success"])
+        self.assertGreater(app_data["layer_count"], 0)
+        self.assertIn("gcode_stats", app_data)
+        self.assertGreaterEqual(app_data["gcode_stats"]["fitted_arcs_count"], 0)
+
+        # Verify optimized G-code is served by gcode/text
+        gc_res = self.client.get("/api/gcode/text")
+        self.assertEqual(gc_res.status_code, 200)
+        gc_data = gc_res.get_json()
+        self.assertTrue(gc_data.get("is_optimized"))
+        self.assertIn("Auto-Machining Optimized", gc_data["gcode"])
+
 
 if __name__ == "__main__":
     unittest.main()

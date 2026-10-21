@@ -26,6 +26,9 @@ from engine.slicer.auto_pilot import AutoPilot
 from engine.slicer.machine import STANDARD_CNC_MACHINES, get_machine_profile, CNCProfile, BedLayoutType
 from engine.gcode.generator import GCodeGenerator
 from engine.gcode.validator import GCodeValidator
+from engine.optimizer.material_database import MATERIALS, get_material
+from engine.optimizer.machining_optimizer import MachiningOptimizer
+from engine.optimizer.gcode_optimizer import GCodeOptimizer
 
 UI_DIR = ROOT_DIR / "ui"
 STATIC_DIR = UI_DIR / "static"
@@ -35,6 +38,8 @@ app = Flask(__name__, static_folder=str(STATIC_DIR), template_folder=str(UI_DIR)
 # Global state for latest sliced job and loaded 3D model
 latest_slicing_result = None
 latest_stock = None
+latest_optimized_gcode: str | None = None
+latest_optimizer_report: dict | None = None
 current_loaded_mesh: trimesh.Trimesh | None = None
 current_mesh_metadata: dict = {}
 active_machine: CNCProfile = STANDARD_CNC_MACHINES["genmitsu_3018"]
@@ -142,7 +147,8 @@ def scan_lidar():
 @app.post("/api/slice")
 def slice_model():
     """Execute subtractive slicing: Stock(Z) - Part(Z) down every Z layer."""
-    global latest_slicing_result, latest_stock
+    global latest_slicing_result, latest_stock, latest_optimized_gcode
+    latest_optimized_gcode = None
     data = request.get_json(force=True) or {}
 
     # Machine profile selection if provided
@@ -634,10 +640,235 @@ def auto_setup():
         return jsonify({"error": f"Auto setup calculation failed: {exc}"}), 500
 
 
+@app.get("/api/optimizer/options")
+def optimizer_options():
+    """Return available profiles, materials, and finish presets."""
+    return jsonify({
+        "success": True,
+        "profiles": MachiningOptimizer.PROFILES,
+        "materials": {k: m.to_dict() for k, m in MATERIALS.items()},
+        "finishes": MachiningOptimizer.FINISH_LEVELS
+    })
+
+
+@app.post("/api/optimizer/analyze")
+def optimizer_analyze():
+    """Run multi-objective optimization analysis comparing baseline vs optimized parameters."""
+    global current_loaded_mesh, active_machine
+    if current_loaded_mesh is None:
+        return jsonify({"error": "No 3D model currently loaded."}), 400
+
+    try:
+        data = request.get_json(silent=True) or {}
+        profile_key = data.get("profile", "balanced")
+        material_key = data.get("material", "wood_mdf")
+        finish_key = data.get("finish", "standard")
+        gcode_opts = data.get("gcode_opts", {})
+        machine_id = data.get("machine_id")
+        machine = STANDARD_CNC_MACHINES.get(machine_id, active_machine)
+
+        # Apply any current transformations
+        rot_x = float(data.get("rot_x", 0.0))
+        rot_y = float(data.get("rot_y", 0.0))
+        rot_z = float(data.get("rot_z", 0.0))
+        scale_x = float(data.get("scale_x", 1.0))
+        scale_y = float(data.get("scale_y", 1.0))
+        scale_z = float(data.get("scale_z", 1.0))
+
+        mesh = current_loaded_mesh.copy()
+        if any(abs(r) > 0.01 for r in [rot_x, rot_y, rot_z]):
+            rx, ry, rz = np.radians(rot_x), np.radians(rot_y), np.radians(rot_z)
+            mesh.apply_transform(trimesh.transformations.euler_matrix(rx, ry, rz))
+        if any(abs(s - 1.0) > 0.001 for s in [scale_x, scale_y, scale_z]):
+            mesh.apply_scale([scale_x, scale_y, scale_z])
+
+        analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+        analysis = analyzer.analyze(mesh)
+
+        recommendation = MachiningOptimizer.compute(
+            analysis=analysis,
+            machine=machine,
+            profile_key=profile_key,
+            material_key=material_key,
+            finish_key=finish_key,
+            gcode_opts=gcode_opts
+        )
+        res = recommendation.to_dict()
+        res["success"] = True
+        return jsonify(res)
+    except Exception as exc:
+        return jsonify({"error": f"Optimization analysis failed: {exc}"}), 500
+
+
+@app.post("/api/optimizer/apply")
+def optimizer_apply():
+    """Apply optimized parameters, slice model with optimized toolpaths, and generate arc-fitted G-code."""
+    global current_loaded_mesh, active_machine, latest_slicing_result, latest_stock, latest_optimized_gcode, latest_optimizer_report
+    if current_loaded_mesh is None:
+        return jsonify({"error": "No 3D model loaded to optimize and slice."}), 400
+
+    try:
+        data = request.get_json(silent=True) or {}
+        profile_key = data.get("profile", "balanced")
+        material_key = data.get("material", "wood_mdf")
+        finish_key = data.get("finish", "standard")
+        gcode_opts = data.get("gcode_opts", {})
+        machine_id = data.get("machine_id")
+        machine = STANDARD_CNC_MACHINES.get(machine_id, active_machine)
+
+        # Transforms & orientation
+        rot_x = float(data.get("rot_x", 0.0))
+        rot_y = float(data.get("rot_y", 0.0))
+        rot_z = float(data.get("rot_z", 0.0))
+        scale_x = float(data.get("scale_x", 1.0))
+        scale_y = float(data.get("scale_y", 1.0))
+        scale_z = float(data.get("scale_z", 1.0))
+        pos_z = float(data.get("pos_z", 0.0))
+
+        mesh = current_loaded_mesh.copy()
+        # Center mesh XY at (0, 0) and bottom at Z=0
+        mesh.apply_translation([-mesh.centroid[0], -mesh.centroid[1], -mesh.bounds[0][2]])
+        if any(abs(r) > 0.01 for r in [rot_x, rot_y, rot_z]):
+            rx, ry, rz = np.radians(rot_x), np.radians(rot_y), np.radians(rot_z)
+            mesh.apply_transform(trimesh.transformations.euler_matrix(rx, ry, rz))
+        if any(abs(s - 1.0) > 0.001 for s in [scale_x, scale_y, scale_z]):
+            mesh.apply_scale([scale_x, scale_y, scale_z])
+
+        analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+        analysis = analyzer.analyze(mesh)
+
+        recommendation = MachiningOptimizer.compute(
+            analysis=analysis,
+            machine=machine,
+            profile_key=profile_key,
+            material_key=material_key,
+            finish_key=finish_key,
+            gcode_opts=gcode_opts
+        )
+
+        stock_shape_str = data.get("stock_shape", "box")
+        shape_enum = StockShape(stock_shape_str) if stock_shape_str in [s.value for s in StockShape] else StockShape.BOX
+
+        stock_w = float(data.get("stock_w", max(70.0, analysis.width_x + 10.0)))
+        stock_l = float(data.get("stock_l", max(70.0, analysis.length_y + 10.0)))
+        stock_t = float(data.get("stock_t", max(32.0, analysis.height_z + 2.0)))
+        stock_d = float(data.get("stock_d", max(90.0, analysis.min_cylinder_diameter_mm + 10.0)))
+
+        stock = StockBlock(
+            shape=shape_enum,
+            width_x=stock_w,
+            length_y=stock_l,
+            thickness_z=stock_t,
+            diameter_d=stock_d,
+            origin_x=-stock_w / 2.0,
+            origin_y=-stock_l / 2.0
+        )
+        stock.set_center(0.0, 0.0)
+
+        # Position mesh at (0, 0, pos_z)
+        mesh.apply_translation([-mesh.centroid[0], -mesh.centroid[1], -mesh.bounds[0][2] + pos_z])
+
+        tool = CuttingTool(
+            tool_id=1,
+            name=recommendation.tool_name,
+            tool_type=ToolType.FLAT_ENDMILL,
+            diameter_mm=recommendation.tool_diameter_mm,
+            stepdown_mm=recommendation.stepdown_mm,
+            stepover_fraction=recommendation.stepover_pct / 100.0,
+            feedrate_xy_mm_min=recommendation.feed_xy_mm_min,
+            plunge_rate_z_mm_min=recommendation.feed_z_mm_min
+        )
+
+        slicer = SubtractiveSlicer(
+            stock=stock,
+            tool=tool,
+            simplification_tolerance=recommendation.smoothing_tolerance_mm
+        )
+
+        result = slicer.slice_3d_mesh(
+            mesh=mesh,
+            z_bottom=0.0,
+            custom_stepdown=recommendation.stepdown_mm,
+            clearing_pattern=recommendation.clearing_pattern,
+            stock_to_leave_mm=recommendation.stock_to_leave_mm,
+            tabs_count=recommendation.tabs_count,
+            tab_width_mm=recommendation.tab_width_mm,
+            tab_height_mm=recommendation.tab_height_mm
+        )
+
+        # Run G-Code Optimization (Arc Fitting & Micro-Movement Filter)
+        gcode_opt = GCodeOptimizer(
+            enable_arc_fitting=recommendation.arc_fitting_enabled,
+            enable_micro_filter=recommendation.micro_move_filter_enabled,
+            enable_collinear_merge=recommendation.collinear_merge_enabled,
+            tolerance_mm=recommendation.smoothing_tolerance_mm
+        )
+        opt_report = gcode_opt.optimize_slicing_result(result)
+        opt_gcode_text = gcode_opt.generate_optimized_gcode(
+            result,
+            spindle_rpm=recommendation.spindle_rpm,
+            program_name=f"{machine.id.upper()}_AUTO_OPT"
+        )
+
+        latest_slicing_result = result
+        latest_stock = stock
+        latest_optimized_gcode = opt_gcode_text
+        latest_optimizer_report = {
+            "recommendation": recommendation.to_dict(),
+            "gcode_optimization": opt_report
+        }
+
+        # Serialize layers for Three.js WebGL visualization
+        layers_data = []
+        for lyr in result.layers:
+            segs_data = []
+            for seg in lyr.segments:
+                pts_data = [
+                    {"x": pt.x, "y": pt.y, "z": pt.z, "move_type": pt.move_type.value}
+                    for pt in seg.points
+                ]
+                segs_data.append({
+                    "operation": seg.operation.value,
+                    "is_closed": seg.is_closed,
+                    "points": pts_data
+                })
+            layers_data.append({
+                "layer_index": lyr.layer_index,
+                "nominal_z": lyr.nominal_z,
+                "segments": segs_data
+            })
+
+        return jsonify({
+            "success": True,
+            "layer_count": result.layer_count,
+            "cut_distance_mm": result.total_cut_length_mm,
+            "rapid_distance_mm": result.total_rapid_length_mm,
+            "estimated_minutes": recommendation.optimized_metrics.cycle_time_min,
+            "layers": layers_data,
+            "recommendation": recommendation.to_dict(),
+            "gcode_stats": {
+                "original_moves": opt_report["original_points_count"],
+                "optimized_moves": opt_report["optimized_moves_count"],
+                "micro_moves_eliminated": opt_report["micro_moves_eliminated"],
+                "fitted_arcs_count": opt_report["fitted_arcs_count"],
+                "reduction_pct": opt_report["line_reduction_percent"],
+                "lines_count": len(opt_gcode_text.splitlines())
+            }
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Failed to apply optimization and slice: {exc}"}), 500
+
+
 @app.get("/api/gcode/text")
 def gcode_text():
     """Return the generated G-code text with line count for in-app inspection."""
-    global latest_slicing_result
+    global latest_slicing_result, latest_optimized_gcode
+    if latest_optimized_gcode is not None:
+        return jsonify({
+            "gcode": latest_optimized_gcode,
+            "lines": len(latest_optimized_gcode.splitlines()),
+            "is_optimized": True
+        })
     if latest_slicing_result is None:
         return jsonify({"gcode": "; No toolpaths generated yet.\n; Load a 3D model and click Slice Stock.\n", "lines": 2})
 
@@ -650,23 +881,26 @@ def gcode_text():
     )
     return jsonify({
         "gcode": text,
-        "lines": len(text.splitlines())
+        "lines": len(text.splitlines()),
+        "is_optimized": False
     })
 
 @app.get("/api/gcode/verify")
 def verify_gcode():
     """Run virtual CNC controller emulation to verify and validate the generated G-code."""
-    global latest_slicing_result
-    if latest_slicing_result is None:
+    global latest_slicing_result, latest_optimized_gcode
+    if latest_optimized_gcode is not None:
+        text = latest_optimized_gcode
+    elif latest_slicing_result is not None:
+        dialect = active_machine.controller_dialect
+        gen = GCodeGenerator(dialect=dialect)
+        text = gen.generate(
+            latest_slicing_result,
+            spindle_rpm=min(16000, active_machine.spindle_max_rpm),
+            program_name=f"{active_machine.id.upper()}_JOB"
+        )
+    else:
         return jsonify({"error": "No toolpaths generated yet. Slice model first."}), 400
-
-    dialect = active_machine.controller_dialect
-    gen = GCodeGenerator(dialect=dialect)
-    text = gen.generate(
-        latest_slicing_result,
-        spindle_rpm=min(16000, active_machine.spindle_max_rpm),
-        program_name=f"{active_machine.id.upper()}_JOB"
-    )
 
     validator = GCodeValidator(
         bed_width=active_machine.bed_width_x,
@@ -684,17 +918,19 @@ def verify_gcode():
 @app.get("/api/gcode/download")
 def download_gcode():
     """Download machine-ready G-code for the latest sliced job."""
-    global latest_slicing_result
-    if latest_slicing_result is None:
+    global latest_slicing_result, latest_optimized_gcode
+    if latest_optimized_gcode is not None:
+        gcode_text = latest_optimized_gcode
+    elif latest_slicing_result is not None:
+        dialect = active_machine.controller_dialect
+        gen = GCodeGenerator(dialect=dialect)
+        gcode_text = gen.generate(
+            latest_slicing_result,
+            spindle_rpm=min(16000, active_machine.spindle_max_rpm),
+            program_name=f"{active_machine.id.upper()}_JOB"
+        )
+    else:
         return "No job has been sliced yet.", 400
-
-    dialect = active_machine.controller_dialect
-    gen = GCodeGenerator(dialect=dialect)
-    gcode_text = gen.generate(
-        latest_slicing_result,
-        spindle_rpm=min(16000, active_machine.spindle_max_rpm),
-        program_name=f"{active_machine.id.upper()}_JOB"
-    )
 
     mem = io.BytesIO(gcode_text.encode("utf-8"))
     return send_file(
