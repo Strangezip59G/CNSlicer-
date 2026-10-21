@@ -112,6 +112,40 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertIn("vertices", data)
         self.assertIn("faces", data)
 
+    def test_analyze_model_endpoint(self):
+        self.client.get("/api/model/sample_pyramid")
+        res = self.client.post("/api/model/analyze", data=json.dumps({
+            "margin_xy": 6.0, "margin_z_top": 2.0
+        }), content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertAlmostEqual(data["width_x"], 60.0, delta=1.0)
+        self.assertIn("recommended_box", data)
+        self.assertIn("recommended_cylinder", data)
+        self.assertIn("recommended_plate", data)
+        self.assertIn("silhouette_exterior", data)
+        self.assertIn("feature_edges", data)
+
+    def test_slice_with_cylinder_stock_and_lock_to_model(self):
+        self.client.get("/api/model/sample_pyramid")
+        res = self.client.post("/api/slice", data=json.dumps({
+            "model_type": "custom_stl",
+            "stock_shape": "cylinder",
+            "stock_d": 90.0,
+            "stock_t": 35.0,
+            "stock_lock_to_model": True,
+            "pos_x": 10.0,
+            "pos_y": 15.0,
+            "stepdown": 3.0,
+            "tool_d": 3.175
+        }), content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertGreater(data["layer_count"], 5)
+        self.assertGreater(data["cut_distance_mm"], 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()

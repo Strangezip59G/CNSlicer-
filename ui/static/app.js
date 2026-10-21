@@ -1,9 +1,11 @@
 // CNC Milling Slicer — Subtractive Studio Version 1
 let scene, camera, renderer, controls, transformControls;
 let bedGrid, stockMesh, partMeshGroup, toolpathLinesGroup, toolMeshGroup;
+let silhouetteOutlineGroup, featureEdgesGroup;
 let currentMesh = null;
 let currentSlicingData = null;
 let currentModelType = "sample2";
+let latestAnalysis = null;
 let activeTool = "select"; // 'select', 'translate', 'rotate', 'scale', 'mirror'
 let isSimulating = false;
 let simIndex = 0;
@@ -46,10 +48,13 @@ function initViewport() {
     controls.enabled = !event.value;
   });
 
-  // Sync 3D Gizmo drags back to input drawer fields
+  // Sync 3D Gizmo drags back to input drawer fields and move stock if locked
   transformControls.addEventListener("objectChange", () => {
     if (!currentMesh) return;
     syncMeshToUI();
+    if (document.getElementById("stock-lock-to-model").checked) {
+      syncStockToModelPosition();
+    }
   });
 
   // Lighting
@@ -70,16 +75,21 @@ function initViewport() {
   // Groups
   partMeshGroup = new THREE.Group();
   toolpathLinesGroup = new THREE.Group();
+  silhouetteOutlineGroup = new THREE.Group();
+  featureEdgesGroup = new THREE.Group();
+
   scene.add(partMeshGroup);
   scene.add(toolpathLinesGroup);
+  scene.add(silhouetteOutlineGroup);
+  scene.add(featureEdgesGroup);
 
   // 3D Cutting Tool Mesh
   toolMeshGroup = createToolMesh(3.175);
   scene.add(toolMeshGroup);
   toolMeshGroup.visible = false;
 
-  // Initial default stock block (60x60x30 mm for sample pyramid)
-  updateStockMesh(60, 60, 30, 50, 50);
+  // Initial default stock block
+  renderCurrentStockMesh();
 
   // Load default sample 3D pyramid
   loadSamplePyramid();
@@ -90,8 +100,9 @@ function initViewport() {
   // Drag-and-drop STL handler on canvas
   setupDragAndDrop(container);
 
-  // Setup Creality tool listeners
+  // Setup Creality tool listeners and analysis listeners
   setupCrealityControls();
+  setupStockAndAnalysisControls();
 
   animate();
 }
@@ -129,32 +140,6 @@ function createBedGrid(w, l) {
   scene.add(bedGrid);
 }
 
-function updateStockMesh(w, l, t, x0 = 50, y0 = 50) {
-  if (stockMesh) scene.remove(stockMesh);
-
-  const geo = new THREE.BoxGeometry(w, l, t);
-  const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x10b981, // Translucent emerald
-    transparent: true,
-    opacity: 0.28,
-    roughness: 0.3,
-    transmission: 0.6,
-    thickness: 1.0,
-    depthWrite: false
-  });
-
-  stockMesh = new THREE.Mesh(geo, mat);
-  stockMesh.position.set(x0 + w / 2, y0 + l / 2, t / 2);
-
-  const edges = new THREE.EdgesGeometry(geo);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
-  const wire = new THREE.LineSegments(edges, lineMat);
-  stockMesh.add(wire);
-
-  scene.add(stockMesh);
-  controls.target.set(x0 + w / 2, y0 + l / 2, t / 2);
-}
-
 // 3D Cutting Tool representation (Spindle collet + Carbide endmill)
 function createToolMesh(diameter = 3.175) {
   const group = new THREE.Group();
@@ -176,6 +161,94 @@ function createToolMesh(diameter = 3.175) {
   group.add(collet);
 
   return group;
+}
+
+// Render Raw Stock Mesh (Box, Plate, Cylinder, Round Plate / Disc, Conforming)
+function renderCurrentStockMesh() {
+  const shape = document.getElementById("stock-shape") ? document.getElementById("stock-shape").value : "box";
+  const w = parseFloat(document.getElementById("stock-w") ? document.getElementById("stock-w").value : 70);
+  const l = parseFloat(document.getElementById("stock-l") ? document.getElementById("stock-l").value : 70);
+  const t = parseFloat(document.getElementById("stock-t") ? document.getElementById("stock-t").value : 32);
+  const dia = parseFloat(document.getElementById("stock-d") ? document.getElementById("stock-d").value : 90);
+
+  let cx = 50 + w / 2;
+  let cy = 50 + l / 2;
+
+  const isLocked = document.getElementById("stock-lock-to-model") ? document.getElementById("stock-lock-to-model").checked : true;
+  if (isLocked && currentMesh) {
+    cx = currentMesh.position.x;
+    cy = currentMesh.position.y;
+  }
+
+  updateStockMesh(shape, w, l, t, dia, cx, cy);
+}
+
+function updateStockMesh(shape, w, l, t, dia, cx, cy) {
+  if (stockMesh) scene.remove(stockMesh);
+
+  let geo;
+  if (shape === "cylinder" || shape === "round_plate") {
+    const r = dia / 2;
+    geo = new THREE.CylinderGeometry(r, r, t, 64);
+    geo.rotateX(Math.PI / 2); // Orient cylinder upright with Z-axis
+  } else if (shape === "conforming" && latestAnalysis && latestAnalysis.silhouette_exterior && latestAnalysis.silhouette_exterior.length > 2) {
+    const shape2d = new THREE.Shape();
+    latestAnalysis.silhouette_exterior.forEach((p, idx) => {
+      if (idx === 0) shape2d.moveTo(p[0], p[1]);
+      else shape2d.lineTo(p[0], p[1]);
+    });
+    shape2d.closePath();
+    geo = new THREE.ExtrudeGeometry(shape2d, { depth: t, bevelEnabled: false });
+  } else {
+    // Box or Plate
+    geo = new THREE.BoxGeometry(w, l, t);
+  }
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: 0x10b981, // Translucent emerald
+    transparent: true,
+    opacity: 0.28,
+    roughness: 0.3,
+    transmission: 0.6,
+    thickness: 1.0,
+    depthWrite: false
+  });
+
+  stockMesh = new THREE.Mesh(geo, mat);
+
+  if (shape === "conforming") {
+    stockMesh.position.set(cx, cy, 0);
+  } else {
+    stockMesh.position.set(cx, cy, t / 2);
+  }
+
+  const edges = new THREE.EdgesGeometry(geo);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 1.5 });
+  const wire = new THREE.LineSegments(edges, lineMat);
+  stockMesh.add(wire);
+
+  scene.add(stockMesh);
+}
+
+// Keep stock and silhouette outline positions synchronized with model
+function syncStockToModelPosition() {
+  if (!currentMesh) return;
+  const t = parseFloat(document.getElementById("stock-t").value || 30);
+  const shape = document.getElementById("stock-shape").value;
+
+  if (stockMesh) {
+    if (shape === "conforming") {
+      stockMesh.position.set(currentMesh.position.x, currentMesh.position.y, 0);
+    } else {
+      stockMesh.position.set(currentMesh.position.x, currentMesh.position.y, t / 2);
+    }
+  }
+
+  if (silhouetteOutlineGroup) {
+    silhouetteOutlineGroup.position.set(currentMesh.position.x, currentMesh.position.y, 0);
+  }
+
+  document.getElementById("stock-pos").value = `X: ${currentMesh.position.x.toFixed(1)}, Y: ${currentMesh.position.y.toFixed(1)}`;
 }
 
 // Load 3D Mesh into Scene
@@ -209,8 +282,8 @@ function display3DMesh(vertices, faces, metadata) {
   const mesh = new THREE.Mesh(geometry, mat);
 
   // Position model centered on stock
-  const stockW = parseFloat(document.getElementById("stock-w").value);
-  const stockL = parseFloat(document.getElementById("stock-l").value);
+  const stockW = parseFloat(document.getElementById("stock-w").value || 60);
+  const stockL = parseFloat(document.getElementById("stock-l").value || 60);
   mesh.position.set(50 + stockW / 2, 50 + stockL / 2, 0);
 
   partMeshGroup.add(mesh);
@@ -231,10 +304,16 @@ function display3DMesh(vertices, faces, metadata) {
   // Reset transform inputs to identity
   resetTransformsUI();
 
+  // Re-render stock mesh centered on model
+  renderCurrentStockMesh();
+
+  // Run automated design analysis to produce outlines
+  runDesignAnalysis();
+
   document.getElementById("status-text").textContent = `Loaded 3D Model: ${metadata.name} (${metadata.width.toFixed(1)} x ${metadata.length.toFixed(1)} x ${metadata.height.toFixed(1)} mm)`;
 }
 
-// Reset UI transform fields to 0 pos, 0 rot, 100% scale
+// Reset UI transform fields
 function resetTransformsUI() {
   document.getElementById("tf-pos-x").value = "0.0";
   document.getElementById("tf-pos-y").value = "0.0";
@@ -301,6 +380,10 @@ function syncUIToMesh() {
   currentMesh.position.set(baseX + px, baseY + py, pz);
   currentMesh.rotation.set(rx, ry, rz);
   currentMesh.scale.set(sx, sy, sz);
+
+  if (document.getElementById("stock-lock-to-model").checked) {
+    syncStockToModelPosition();
+  }
 }
 
 // Creality Tool Selector & Drawer Management
@@ -313,7 +396,6 @@ function setActiveTool(tool) {
   const contentScale = document.getElementById("drawer-scale-content");
   const contentMirror = document.getElementById("drawer-mirror-content");
 
-  // Update active state on toolbar buttons
   const buttons = {
     select: document.getElementById("tool-select-btn"),
     translate: document.getElementById("tool-translate-btn"),
@@ -324,7 +406,6 @@ function setActiveTool(tool) {
   Object.values(buttons).forEach((b) => b && b.classList.remove("active"));
   if (buttons[tool]) buttons[tool].classList.add("active");
 
-  // Hide all sub-panels first
   contentMove.style.display = "none";
   contentRotate.style.display = "none";
   contentScale.style.display = "none";
@@ -346,7 +427,6 @@ function setActiveTool(tool) {
       transformControls.setMode("translate");
       transformControls.attach(currentMesh);
     }
-    document.getElementById("status-text").textContent = "Move Tool: Drag 3D XYZ arrows or enter coordinate offsets.";
   } else if (tool === "rotate") {
     drawerTitle.textContent = "Rotate Tool";
     contentRotate.style.display = "flex";
@@ -354,7 +434,6 @@ function setActiveTool(tool) {
       transformControls.setMode("rotate");
       transformControls.attach(currentMesh);
     }
-    document.getElementById("status-text").textContent = "Rotate Tool: Drag rotation rings, click +90°, or click Lay Flat.";
   } else if (tool === "scale") {
     drawerTitle.textContent = "Scale Tool";
     contentScale.style.display = "flex";
@@ -362,12 +441,10 @@ function setActiveTool(tool) {
       transformControls.setMode("scale");
       transformControls.attach(currentMesh);
     }
-    document.getElementById("status-text").textContent = "Scale Tool: Drag scaling handles or enter percentage scale.";
   } else if (tool === "mirror") {
     drawerTitle.textContent = "Mirror Tool";
     contentMirror.style.display = "flex";
     transformControls.detach();
-    document.getElementById("status-text").textContent = "Mirror Tool: Click an axis to flip model orientation.";
   }
 }
 
@@ -388,7 +465,6 @@ async function layFlatModel() {
   }
 }
 
-// Center model inside stock boundaries
 function centerModelInStock() {
   document.getElementById("tf-pos-x").value = "0.0";
   document.getElementById("tf-pos-y").value = "0.0";
@@ -397,30 +473,27 @@ function centerModelInStock() {
   document.getElementById("status-text").textContent = "Model centered in stock block.";
 }
 
-// Drop model base directly to bed Z=0
 function dropModelToBed() {
   document.getElementById("tf-pos-z").value = "0.0";
   syncUIToMesh();
   document.getElementById("status-text").textContent = "Model dropped to bed floor (Z=0).";
 }
 
-// Reset all model transformations
 function resetAllTransforms() {
   resetTransformsUI();
   syncUIToMesh();
   document.getElementById("status-text").textContent = "Model transformations reset to default.";
 }
 
-// Increment rotation angle by +90 degrees
 function addRotation(axis, degrees) {
   const inp = document.getElementById(`tf-rot-${axis}`);
   let val = (parseFloat(inp.value || 0) + degrees) % 360;
   if (val < 0) val += 360;
   inp.value = val;
   syncUIToMesh();
+  runDesignAnalysis();
 }
 
-// Auto-Fit model into stock with safe boundary clearances
 function autoFitModelIntoStock() {
   if (!currentMesh) return;
   const stockW = parseFloat(document.getElementById("stock-w").value || 60);
@@ -443,7 +516,6 @@ function autoFitModelIntoStock() {
   document.getElementById("status-text").textContent = `Auto-fit scaled model to ${pct}% to safely fit stock boundaries.`;
 }
 
-// Mirror model along an axis
 function mirrorAxis(axis) {
   if (!currentMesh) return;
   const inp = document.getElementById(`tf-scale-${axis}`);
@@ -453,9 +525,205 @@ function mirrorAxis(axis) {
   document.getElementById("status-text").textContent = `Mirrored model along ${axis.toUpperCase()} axis.`;
 }
 
+// Design Analysis & Outline Generation
+async function runDesignAnalysis() {
+  document.getElementById("status-text").textContent = "Analyzing design geometry and extracting boundary outlines for meshing...";
+
+  try {
+    const payload = {
+      rot_x: parseFloat(document.getElementById("tf-rot-x") ? document.getElementById("tf-rot-x").value : 0),
+      rot_y: parseFloat(document.getElementById("tf-rot-y") ? document.getElementById("tf-rot-y").value : 0),
+      rot_z: parseFloat(document.getElementById("tf-rot-z") ? document.getElementById("tf-rot-z").value : 0),
+      scale_x: parseFloat(document.getElementById("tf-scale-x") ? document.getElementById("tf-scale-x").value : 100) / 100,
+      scale_y: parseFloat(document.getElementById("tf-scale-y") ? document.getElementById("tf-scale-y").value : 100) / 100,
+      scale_z: parseFloat(document.getElementById("tf-scale-z") ? document.getElementById("tf-scale-z").value : 100) / 100,
+      margin_xy: 5.0,
+      margin_z_top: 2.0
+    };
+
+    const res = await fetch("/api/model/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) return;
+
+    latestAnalysis = data;
+
+    // Update UI Stats
+    document.getElementById("analysis-footprint").textContent = `${data.footprint_area_mm2.toFixed(0)} mm²`;
+    document.getElementById("analysis-volume").textContent = `${data.volume_cm3.toFixed(1)} cm³`;
+    document.getElementById("analysis-cyl-dia").textContent = `Ø${data.min_cylinder_diameter_mm.toFixed(1)} mm`;
+    document.getElementById("analysis-feature-count").textContent = `${data.feature_edges.length} edges`;
+
+    // Render Outlines in 3D Viewport
+    renderAnalysisOutlines(data);
+
+    document.getElementById("status-text").textContent = `Analysis complete: Footprint ${data.footprint_area_mm2.toFixed(0)} mm², Bounding Cyl Ø${data.min_cylinder_diameter_mm.toFixed(1)}mm. Outlines ready.`;
+  } catch (err) {
+    console.error("Design analysis failed:", err);
+  }
+}
+
+// Render 2D Footprint Silhouette & 3D Feature Edge Curves
+function renderAnalysisOutlines(data) {
+  // Clear previous outlines
+  while (silhouetteOutlineGroup.children.length > 0) {
+    silhouetteOutlineGroup.remove(silhouetteOutlineGroup.children[0]);
+  }
+  while (featureEdgesGroup.children.length > 0) {
+    featureEdgesGroup.remove(featureEdgesGroup.children[0]);
+  }
+
+  // 1. 2D Silhouette Footprint on Bed Floor
+  if (data.silhouette_exterior && data.silhouette_exterior.length > 2) {
+    const extPts = data.silhouette_exterior.map((p) => new THREE.Vector3(p[0], p[1], 0.2));
+    const extGeo = new THREE.BufferGeometry().setFromPoints(extPts);
+    const extMat = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 });
+    const extLine = new THREE.LineLoop(extGeo, extMat);
+    silhouetteOutlineGroup.add(extLine);
+  }
+
+  if (data.silhouette_interiors) {
+    data.silhouette_interiors.forEach((ring) => {
+      const intPts = ring.map((p) => new THREE.Vector3(p[0], p[1], 0.2));
+      const intGeo = new THREE.BufferGeometry().setFromPoints(intPts);
+      const intMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 1.5 });
+      const intLine = new THREE.LineLoop(intGeo, intMat);
+      silhouetteOutlineGroup.add(intLine);
+    });
+  }
+
+  if (currentMesh) {
+    silhouetteOutlineGroup.position.set(currentMesh.position.x, currentMesh.position.y, 0);
+  }
+
+  // 2. 3D Feature Edge Curves (creases, steps, sharp profile curves)
+  if (data.feature_edges && data.feature_edges.length > 0) {
+    const edgePts = [];
+    data.feature_edges.forEach((segment) => {
+      edgePts.push(new THREE.Vector3(segment[0][0], segment[0][1], segment[0][2]));
+      edgePts.push(new THREE.Vector3(segment[1][0], segment[1][1], segment[1][2]));
+    });
+
+    const edgesGeo = new THREE.BufferGeometry().setFromPoints(edgePts);
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, linewidth: 2 }); // Rich gold
+    const edgesLines = new THREE.LineSegments(edgesGeo, edgesMat);
+    featureEdgesGroup.add(edgesLines);
+  }
+
+  if (currentMesh) {
+    featureEdgesGroup.position.copy(currentMesh.position);
+    featureEdgesGroup.rotation.copy(currentMesh.rotation);
+    featureEdgesGroup.scale.copy(currentMesh.scale);
+  }
+
+  // Check visibility toggles
+  silhouetteOutlineGroup.visible = document.getElementById("chk-show-silhouette").checked;
+  featureEdgesGroup.visible = document.getElementById("chk-show-feature-edges").checked;
+}
+
+// Auto-Fit Raw Stock Dimensions around current design
+function autoFitStockToDesign() {
+  if (!latestAnalysis) return;
+
+  const shape = document.getElementById("stock-shape").value;
+  if (shape === "cylinder" || shape === "round_plate") {
+    document.getElementById("stock-d").value = latestAnalysis.recommended_cylinder.diameter;
+    document.getElementById("stock-t").value = latestAnalysis.recommended_cylinder.thickness;
+  } else if (shape === "plate") {
+    document.getElementById("stock-w").value = latestAnalysis.recommended_plate.width;
+    document.getElementById("stock-l").value = latestAnalysis.recommended_plate.length;
+    document.getElementById("stock-t").value = latestAnalysis.recommended_plate.thickness;
+  } else {
+    document.getElementById("stock-w").value = latestAnalysis.recommended_box.width;
+    document.getElementById("stock-l").value = latestAnalysis.recommended_box.length;
+    document.getElementById("stock-t").value = latestAnalysis.recommended_box.thickness;
+  }
+
+  renderCurrentStockMesh();
+  document.getElementById("status-text").textContent = `Stock auto-fitted to design boundaries with machining margins.`;
+}
+
+// Setup Stock and Analysis Event Listeners
+function setupStockAndAnalysisControls() {
+  const shapeSelect = document.getElementById("stock-shape");
+  const boxDims = document.getElementById("stock-box-dims");
+  const cylDims = document.getElementById("stock-cylinder-dims");
+  const conformingDims = document.getElementById("stock-conforming-dims");
+
+  shapeSelect.addEventListener("change", () => {
+    const val = shapeSelect.value;
+    boxDims.style.display = (val === "box" || val === "plate") ? "block" : "none";
+    cylDims.style.display = (val === "cylinder" || val === "round_plate") ? "block" : "none";
+    conformingDims.style.display = (val === "conforming") ? "block" : "none";
+    renderCurrentStockMesh();
+  });
+
+  // Re-render stock on dimension input changes
+  ["stock-w", "stock-l", "stock-t", "stock-d"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", renderCurrentStockMesh);
+  });
+
+  // Auto-fit & Center stock buttons
+  document.getElementById("btn-fit-stock-to-design").addEventListener("click", autoFitStockToDesign);
+  document.getElementById("btn-center-stock-model").addEventListener("click", () => {
+    if (currentMesh) {
+      syncStockToModelPosition();
+      document.getElementById("status-text").textContent = "Stock centered directly onto 3D model.";
+    }
+  });
+
+  // Analysis run & preset buttons
+  document.getElementById("btn-run-analysis").addEventListener("click", runDesignAnalysis);
+  const btnAnalyzeHeader = document.getElementById("btn-analyze-model");
+  if (btnAnalyzeHeader) btnAnalyzeHeader.addEventListener("click", runDesignAnalysis);
+
+  document.getElementById("btn-apply-rec-box").addEventListener("click", () => {
+    shapeSelect.value = "box";
+    shapeSelect.dispatchEvent(new Event("change"));
+    if (latestAnalysis) {
+      document.getElementById("stock-w").value = latestAnalysis.recommended_box.width;
+      document.getElementById("stock-l").value = latestAnalysis.recommended_box.length;
+      document.getElementById("stock-t").value = latestAnalysis.recommended_box.thickness;
+      renderCurrentStockMesh();
+    }
+  });
+
+  document.getElementById("btn-apply-rec-cylinder").addEventListener("click", () => {
+    shapeSelect.value = "cylinder";
+    shapeSelect.dispatchEvent(new Event("change"));
+    if (latestAnalysis) {
+      document.getElementById("stock-d").value = latestAnalysis.recommended_cylinder.diameter;
+      document.getElementById("stock-t").value = latestAnalysis.recommended_cylinder.thickness;
+      renderCurrentStockMesh();
+    }
+  });
+
+  document.getElementById("btn-apply-rec-plate").addEventListener("click", () => {
+    shapeSelect.value = "plate";
+    shapeSelect.dispatchEvent(new Event("change"));
+    if (latestAnalysis) {
+      document.getElementById("stock-w").value = latestAnalysis.recommended_plate.width;
+      document.getElementById("stock-l").value = latestAnalysis.recommended_plate.length;
+      document.getElementById("stock-t").value = latestAnalysis.recommended_plate.thickness;
+      renderCurrentStockMesh();
+    }
+  });
+
+  // Outline visibility toggles
+  document.getElementById("chk-show-silhouette").addEventListener("change", (e) => {
+    silhouetteOutlineGroup.visible = e.target.checked;
+  });
+  document.getElementById("chk-show-feature-edges").addEventListener("change", (e) => {
+    featureEdgesGroup.visible = e.target.checked;
+  });
+}
+
 // Setup Creality Toolbar, Drawer, and Transform Event Listeners
 function setupCrealityControls() {
-  // Toolbar buttons
   document.getElementById("tool-select-btn").addEventListener("click", () => setActiveTool("select"));
   document.getElementById("tool-translate-btn").addEventListener("click", () => setActiveTool("translate"));
   document.getElementById("tool-rotate-btn").addEventListener("click", () => setActiveTool("rotate"));
@@ -465,14 +733,11 @@ function setupCrealityControls() {
   document.getElementById("tool-center-btn").addEventListener("click", centerModelInStock);
   document.getElementById("tool-reset-btn").addEventListener("click", resetAllTransforms);
 
-  // Drawer close button
   document.getElementById("drawer-close").addEventListener("click", () => setActiveTool("select"));
 
-  // Move Drawer actions
   document.getElementById("btn-drawer-center").addEventListener("click", centerModelInStock);
   document.getElementById("btn-drawer-drop").addEventListener("click", dropModelToBed);
 
-  // Rotate Drawer actions
   document.getElementById("btn-rot-x-90").addEventListener("click", () => addRotation("x", 90));
   document.getElementById("btn-rot-y-90").addEventListener("click", () => addRotation("y", 90));
   document.getElementById("btn-rot-z-90").addEventListener("click", () => addRotation("z", 90));
@@ -482,9 +747,9 @@ function setupCrealityControls() {
     document.getElementById("tf-rot-y").value = "0";
     document.getElementById("tf-rot-z").value = "0";
     syncUIToMesh();
+    runDesignAnalysis();
   });
 
-  // Scale Drawer actions
   const uniformChk = document.getElementById("tf-scale-uniform");
   ["x", "y", "z"].forEach((axis) => {
     const input = document.getElementById(`tf-scale-${axis}`);
@@ -498,6 +763,7 @@ function setupCrealityControls() {
       }
       syncUIToMesh();
     });
+    input.addEventListener("change", runDesignAnalysis);
   });
 
   document.getElementById("btn-drawer-fit").addEventListener("click", autoFitModelIntoStock);
@@ -506,19 +772,17 @@ function setupCrealityControls() {
     document.getElementById("tf-scale-y").value = "100";
     document.getElementById("tf-scale-z").value = "100";
     syncUIToMesh();
+    runDesignAnalysis();
   });
 
-  // Mirror Drawer actions
   document.getElementById("btn-mirror-x").addEventListener("click", () => mirrorAxis("x"));
   document.getElementById("btn-mirror-y").addEventListener("click", () => mirrorAxis("y"));
   document.getElementById("btn-mirror-z").addEventListener("click", () => mirrorAxis("z"));
 
-  // Inputs live change listeners
   ["tf-pos-x", "tf-pos-y", "tf-pos-z", "tf-rot-x", "tf-rot-y", "tf-rot-z"].forEach((id) => {
     document.getElementById(id).addEventListener("input", syncUIToMesh);
   });
 
-  // Holding tabs UI visibility toggle
   const tabsCountSelect = document.getElementById("tabs-count");
   const tabsSpecsRow = document.getElementById("tabs-specs-row");
   tabsCountSelect.addEventListener("change", () => {
@@ -529,18 +793,6 @@ function setupCrealityControls() {
   tabsSpecsRow.style.opacity = "0.4";
   tabsSpecsRow.style.pointerEvents = "none";
 
-  // Stock dimensions live updates
-  ["stock-w", "stock-l", "stock-t"].forEach((id) => {
-    document.getElementById(id).addEventListener("change", () => {
-      const sw = parseFloat(document.getElementById("stock-w").value);
-      const sl = parseFloat(document.getElementById("stock-l").value);
-      const st = parseFloat(document.getElementById("stock-t").value);
-      updateStockMesh(sw, sl, st, 50, 50);
-      syncUIToMesh();
-    });
-  });
-
-  // Creality Keyboard Shortcuts: Esc (View), W (Move), E (Rotate), R (Scale), M (Mirror)
   window.addEventListener("keydown", (e) => {
     if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
     if (e.key === "Escape") setActiveTool("select");
@@ -558,10 +810,10 @@ async function loadSamplePyramid() {
     const res = await fetch("/api/model/sample_pyramid");
     const data = await res.json();
     if (data.success) {
-      document.getElementById("stock-w").value = 60;
-      document.getElementById("stock-l").value = 60;
-      document.getElementById("stock-t").value = 30;
-      updateStockMesh(60, 60, 30, 50, 50);
+      document.getElementById("stock-w").value = 70;
+      document.getElementById("stock-l").value = 70;
+      document.getElementById("stock-t").value = 32;
+      document.getElementById("stock-d").value = 90;
       display3DMesh(data.vertices, data.faces, data.metadata);
     }
   } catch (err) {
@@ -589,16 +841,16 @@ async function uploadStlFile(file) {
       return;
     }
 
-    // Auto-fit stock around model with 10mm XY margin and 2mm Z top allowance
-    const autoW = Math.ceil(data.metadata.width + 20);
-    const autoL = Math.ceil(data.metadata.length + 20);
+    const autoW = Math.ceil(data.metadata.width + 10);
+    const autoL = Math.ceil(data.metadata.length + 10);
     const autoT = Math.ceil(data.metadata.height + 2);
+    const autoD = Math.ceil(Math.sqrt(autoW * autoW + autoL * autoL));
 
     document.getElementById("stock-w").value = autoW;
     document.getElementById("stock-l").value = autoL;
     document.getElementById("stock-t").value = autoT;
+    document.getElementById("stock-d").value = autoD;
 
-    updateStockMesh(autoW, autoL, autoT, 50, 50);
     display3DMesh(data.vertices, data.faces, data.metadata);
   } catch (err) {
     console.error("Upload error:", err);
@@ -627,8 +879,10 @@ function setupDragAndDrop(container) {
 // Trigger Toolhead LiDAR Auto-Scan
 async function autoScanBedLidar() {
   const badge = document.getElementById("lidar-status-badge");
-  badge.textContent = "Scanning Bed...";
-  badge.style.background = "#7e22ce";
+  if (badge) {
+    badge.textContent = "Scanning Bed...";
+    badge.style.background = "#7e22ce";
+  }
 
   document.getElementById("status-text").textContent = "Toolhead LiDAR sweeping machine bed to locate stock coordinates & surface flatness...";
 
@@ -652,9 +906,11 @@ async function autoScanBedLidar() {
       document.getElementById("stock-pos").value = `X: ${data.x_min.toFixed(1)}, Y: ${data.y_min.toFixed(1)}`;
       document.getElementById("surface-warp-val").textContent = `${data.max_deviation.toFixed(2)} mm (Auto-Leveled)`;
 
-      updateStockMesh(data.width, data.length, data.thickness, data.x_min, data.y_min);
-      badge.textContent = "Stock Located (Auto)";
-      badge.style.background = "#065f46";
+      renderCurrentStockMesh();
+      if (badge) {
+        badge.textContent = "Stock Located (Auto)";
+        badge.style.background = "#065f46";
+      }
       document.getElementById("status-text").textContent = `LiDAR Detection: Located ${data.width.toFixed(1)} x ${data.length.toFixed(1)} x ${data.thickness.toFixed(1)} mm stock. Auto-leveling active.`;
     }
   } catch (err) {
@@ -662,7 +918,7 @@ async function autoScanBedLidar() {
   }
 }
 
-// Slicing Core with Creality Transform Inputs & Machining Options
+// Slicing Core with Stock Geometry and Position Locking
 async function sliceCurrentModel() {
   const sliceBtn = document.getElementById("btn-slice");
   sliceBtn.disabled = true;
@@ -672,9 +928,14 @@ async function sliceCurrentModel() {
   try {
     const payload = {
       model_type: currentModelType,
+      stock_shape: document.getElementById("stock-shape").value,
       stock_w: parseFloat(document.getElementById("stock-w").value),
       stock_l: parseFloat(document.getElementById("stock-l").value),
       stock_t: parseFloat(document.getElementById("stock-t").value),
+      stock_d: parseFloat(document.getElementById("stock-d") ? document.getElementById("stock-d").value : 90),
+      stock_lock_to_model: document.getElementById("stock-lock-to-model").checked,
+      margin_xy: parseFloat(document.getElementById("stock-conforming-margin") ? document.getElementById("stock-conforming-margin").value : 5.0),
+
       stepdown: parseFloat(document.getElementById("cut-stepdown").value),
       stepover: parseFloat(document.getElementById("cut-stepover").value) / 100.0,
       feed_xy: parseFloat(document.getElementById("feed-xy").value),
@@ -818,7 +1079,6 @@ function toggleSimulation() {
     return;
   }
 
-  // Extract points for currently selected layer (or all layers)
   const layerVal = parseInt(document.getElementById("layer-slider").value);
   const layersToSim = (layerVal === 0 || layerVal === currentSlicingData.layer_count)
     ? currentSlicingData.layers
@@ -893,9 +1153,14 @@ function setCameraView(view) {
   const stockW = parseFloat(document.getElementById("stock-w").value);
   const stockL = parseFloat(document.getElementById("stock-l").value);
   const stockT = parseFloat(document.getElementById("stock-t").value);
-  const cx = 50 + stockW / 2;
-  const cy = 50 + stockL / 2;
+  let cx = 50 + stockW / 2;
+  let cy = 50 + stockL / 2;
   const cz = stockT / 2;
+
+  if (document.getElementById("stock-lock-to-model").checked && currentMesh) {
+    cx = currentMesh.position.x;
+    cy = currentMesh.position.y;
+  }
 
   controls.target.set(cx, cy, cz);
 

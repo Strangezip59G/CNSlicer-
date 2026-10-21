@@ -14,9 +14,10 @@ import trimesh
 
 from engine.lidar.mock_sensor import MockLidarSensor
 from engine.lidar.scanner import ToolheadLidarScanner
-from engine.slicer.stock import StockBlock
+from engine.slicer.stock import StockBlock, StockShape
 from engine.slicer.tool import CuttingTool, ToolType
 from engine.slicer.subtractive import SubtractiveSlicer
+from engine.slicer.analyzer import DesignAnalyzer
 from engine.gcode.generator import GCodeGenerator
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -100,9 +101,15 @@ def slice_model():
     data = request.get_json(force=True) or {}
 
     model_type = data.get("model_type", "sample1")
+    stock_shape = str(data.get("stock_shape", "box")).lower()
     stock_w = float(data.get("stock_w", 100.0))
     stock_l = float(data.get("stock_l", 80.0))
     stock_t = float(data.get("stock_t", 20.0))
+    stock_d = float(data.get("stock_d", max(stock_w, stock_l)))
+    stock_lock_to_model = bool(data.get("stock_lock_to_model", True))
+    stock_origin_x = float(data.get("stock_origin_x", 50.0))
+    stock_origin_y = float(data.get("stock_origin_y", 50.0))
+
     stepdown = float(data.get("stepdown", 1.0))
     stepover = float(data.get("stepover", 0.45))
     tool_d = float(data.get("tool_d", 3.175))
@@ -126,7 +133,22 @@ def slice_model():
     tab_width = float(data.get("tab_width", 5.0))
     tab_height = float(data.get("tab_height", 2.0))
 
-    stock = StockBlock(width_x=stock_w, length_y=stock_l, thickness_z=stock_t, origin_x=50.0, origin_y=50.0)
+    target_cx = 50.0 + stock_w / 2.0 + pos_x
+    target_cy = 50.0 + stock_l / 2.0 + pos_y
+
+    shape_enum = StockShape(stock_shape) if stock_shape in StockShape._value2member_map_ else StockShape.BOX
+    stock = StockBlock(
+        shape=shape_enum,
+        width_x=stock_w,
+        length_y=stock_l,
+        thickness_z=stock_t,
+        diameter_d=stock_d,
+        origin_x=stock_origin_x,
+        origin_y=stock_origin_y
+    )
+    if stock_lock_to_model:
+        stock.set_center(target_cx, target_cy)
+
     tool = CuttingTool(
         tool_id=1,
         name=f"{tool_d:.3f}mm Endmill",
@@ -169,10 +191,16 @@ def slice_model():
 
         # 4. Position model on stock floor
         mesh_to_slice.apply_translation([
-            -mesh_to_slice.centroid[0] + (50.0 + stock_w / 2.0 + pos_x),
-            -mesh_to_slice.centroid[1] + (50.0 + stock_l / 2.0 + pos_y),
+            -mesh_to_slice.centroid[0] + target_cx,
+            -mesh_to_slice.centroid[1] + target_cy,
             -mesh_to_slice.bounds[0][2] + pos_z
         ])
+
+        if shape_enum == StockShape.CONFORMING:
+            margin_xy = float(data.get("margin_xy", 5.0))
+            analyzer = DesignAnalyzer()
+            conforming_poly = analyzer.compute_conforming_stock_outline(mesh_to_slice, margin_xy=margin_xy)
+            stock.conforming_polygon = conforming_poly
 
         result = slicer.slice_3d_mesh(
             mesh=mesh_to_slice,
@@ -385,6 +413,77 @@ def layflat_model():
         })
     except Exception as exc:
         return jsonify({"error": f"Failed to lay model flat: {exc}"}), 500
+
+
+@app.post("/api/model/analyze")
+def analyze_model():
+    """Analyze loaded 3D design to extract bounding extents, volume, 2D silhouette, convex hull,
+    feature edge curves, and recommended stock sizes for box, cylinder, and metal plates.
+    """
+    global current_loaded_mesh
+    if current_loaded_mesh is None:
+        return jsonify({"error": "No 3D model currently loaded to analyze."}), 400
+
+    try:
+        data = request.get_json(silent=True) or {}
+        margin_xy = float(data.get("margin_xy", 5.0))
+        margin_z_top = float(data.get("margin_z_top", 2.0))
+        margin_z_bottom = float(data.get("margin_z_bottom", 0.0))
+
+        # Apply any current orientation or scale from client
+        rot_x = float(data.get("rot_x", 0.0))
+        rot_y = float(data.get("rot_y", 0.0))
+        rot_z = float(data.get("rot_z", 0.0))
+        scale_x = float(data.get("scale_x", 1.0))
+        scale_y = float(data.get("scale_y", 1.0))
+        scale_z = float(data.get("scale_z", 1.0))
+
+        mesh = current_loaded_mesh.copy()
+        if any(abs(r) > 0.01 for r in [rot_x, rot_y, rot_z]):
+            rx, ry, rz = np.radians(rot_x), np.radians(rot_y), np.radians(rot_z)
+            mesh.apply_transform(trimesh.transformations.euler_matrix(rx, ry, rz))
+        if any(abs(s - 1.0) > 0.001 for s in [scale_x, scale_y, scale_z]):
+            mesh.apply_scale([scale_x, scale_y, scale_z])
+
+        analyzer = DesignAnalyzer(crease_angle_deg=25.0)
+        analysis = analyzer.analyze(
+            mesh,
+            margin_xy=margin_xy,
+            margin_z_top=margin_z_top,
+            margin_z_bottom=margin_z_bottom
+        )
+
+        return jsonify({
+            "success": True,
+            "width_x": analysis.width_x,
+            "length_y": analysis.length_y,
+            "height_z": analysis.height_z,
+            "min_x": analysis.min_x,
+            "max_x": analysis.max_x,
+            "min_y": analysis.min_y,
+            "max_y": analysis.max_y,
+            "min_z": analysis.min_z,
+            "max_z": analysis.max_z,
+            "centroid": analysis.centroid,
+            "volume_cm3": analysis.volume_cm3,
+            "surface_area_cm2": analysis.surface_area_cm2,
+            "footprint_area_mm2": analysis.footprint_area_mm2,
+            "perimeter_length_mm": analysis.perimeter_length_mm,
+            "triangle_count": analysis.triangle_count,
+            "vertex_count": analysis.vertex_count,
+            "is_watertight": analysis.is_watertight,
+            "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
+            "recommended_box": analysis.recommended_box,
+            "recommended_cylinder": analysis.recommended_cylinder,
+            "recommended_plate": analysis.recommended_plate,
+            "recommended_round_plate": analysis.recommended_round_plate,
+            "silhouette_exterior": analysis.silhouette_exterior,
+            "silhouette_interiors": analysis.silhouette_interiors,
+            "convex_hull": analysis.convex_hull,
+            "feature_edges": analysis.feature_edges
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Design analysis failed: {exc}"}), 500
 
 
 @app.get("/api/gcode/text")

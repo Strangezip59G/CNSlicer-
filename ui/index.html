@@ -30,6 +30,9 @@
         <button id="btn-load-sample2" class="btn btn-secondary">
           <span class="icon">🏛️</span> Sample Pyramid
         </button>
+        <button id="btn-analyze-model" class="btn btn-accent">
+          <span class="icon">🔍</span> Analyze Design
+        </button>
         <button id="btn-slice" class="btn btn-primary">
           <span class="icon">🔪</span> Slice Stock
         </button>
@@ -159,35 +162,119 @@
           </div>
         </div>
 
-        <!-- Panel 6: Stock & LiDAR Setup -->
+        <!-- Panel 6: Raw Stock Material & Geometry -->
         <div class="panel">
-          <h3 class="panel-title">📡 Raw Stock & LiDAR</h3>
+          <h3 class="panel-title">🪵 Raw Stock Material & Geometry</h3>
           <div class="control-group">
-            <div class="lidar-status" id="lidar-status-badge">Auto-Detect Ready</div>
+            <label>Material Shape:</label>
+            <select id="stock-shape">
+              <option value="box" selected>Rectangular Block / Cube</option>
+              <option value="plate">Metal Plate (Rectangular Sheet)</option>
+              <option value="cylinder">Cylinder / Round Bar</option>
+              <option value="round_plate">Cylindrical Metal Plate / Disc</option>
+              <option value="conforming">Conforming Outline (Follows Silhouette)</option>
+            </select>
           </div>
-          <div class="control-row">
-            <div>
-              <label>Width X (mm)</label>
-              <input type="number" id="stock-w" value="60" min="10" max="600">
-            </div>
-            <div>
-              <label>Length Y (mm)</label>
-              <input type="number" id="stock-l" value="60" min="10" max="600">
+
+          <!-- Box & Plate Dimensions -->
+          <div id="stock-box-dims">
+            <div class="control-row">
+              <div>
+                <label>Width X (mm)</label>
+                <input type="number" id="stock-w" value="70" min="10" max="600">
+              </div>
+              <div>
+                <label>Length Y (mm)</label>
+                <input type="number" id="stock-l" value="70" min="10" max="600">
+              </div>
             </div>
           </div>
+
+          <!-- Cylinder & Round Plate Dimensions -->
+          <div id="stock-cylinder-dims" style="display: none;">
+            <div class="control-group">
+              <label>Diameter D (mm):</label>
+              <input type="number" id="stock-d" value="90" min="10" max="600">
+            </div>
+          </div>
+
+          <!-- Conforming Outline Clearance -->
+          <div id="stock-conforming-dims" style="display: none;">
+            <div class="control-group">
+              <label>XY Clearance Margin (mm):</label>
+              <input type="number" id="stock-conforming-margin" value="5.0" min="1.0" max="50.0" step="0.5">
+            </div>
+          </div>
+
+          <!-- Common Thickness & Position -->
           <div class="control-row">
             <div>
               <label>Thickness Z (mm)</label>
-              <input type="number" id="stock-t" value="30" min="2" max="150">
+              <input type="number" id="stock-t" value="32" min="1" max="200">
             </div>
             <div>
-              <label>Bed Position</label>
-              <input type="text" id="stock-pos" value="X: 50, Y: 50" readonly>
+              <label>Stock Center</label>
+              <input type="text" id="stock-pos" value="Auto-Linked" readonly>
             </div>
           </div>
+
+          <!-- Stock Following Design / Auto Alignment -->
+          <div class="checkbox-row" style="margin-top: 6px;">
+            <label><input type="checkbox" id="stock-lock-to-model" checked> Lock Stock to Model (Follow Design)</label>
+          </div>
+
+          <div class="drawer-actions" style="margin-top: 8px;">
+            <button id="btn-fit-stock-to-design" class="btn btn-tool" title="Resize stock to fit model with margins">📐 Auto-Fit Stock</button>
+            <button id="btn-center-stock-model" class="btn btn-tool" title="Align stock center directly to model">🎯 Center Stock</button>
+          </div>
+
+          <div class="control-group" style="margin-top: 8px;">
+            <label>LiDAR Surface Flatness:</label>
+            <div class="metric-val" id="surface-warp-val">0.08 mm (Auto-Leveled)</div>
+          </div>
+        </div>
+
+        <!-- Panel 7: Design Analysis & Meshing Outlines -->
+        <div class="panel">
+          <h3 class="panel-title">🔍 Design Analysis & Meshing Outlines</h3>
           <div class="control-group">
-            <label>Surface Warp (LiDAR Mesh):</label>
-            <div class="metric-val" id="surface-warp-val">0.08 mm (Flat)</div>
+            <button id="btn-run-analysis" class="btn btn-secondary" style="width: 100%; justify-content: center;">
+              <span class="icon">📐</span> Analyze Design Geometry
+            </button>
+          </div>
+
+          <!-- Outlines Visibility Toggles -->
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-silhouette" checked> 2D Footprint Silhouette</label>
+          </div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-feature-edges" checked> 3D Feature Edge Curves</label>
+          </div>
+
+          <div class="stats-grid" style="margin-top: 8px;">
+            <div class="stat-box">
+              <span class="stat-label">Footprint Area</span>
+              <span class="stat-val" id="analysis-footprint">- mm²</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Model Volume</span>
+              <span class="stat-val" id="analysis-volume">- cm³</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Min Round Dia</span>
+              <span class="stat-val" id="analysis-cyl-dia">- mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Mesh Features</span>
+              <span class="stat-val" id="analysis-feature-count">- edges</span>
+            </div>
+          </div>
+
+          <!-- Quick Stock Presets from Analysis -->
+          <div class="drawer-actions-col" style="margin-top: 8px;">
+            <button id="btn-apply-rec-box" class="btn btn-tool" style="font-size: 10px;">📦 Use Recommended Box Stock</button>
+            <button id="btn-apply-rec-cylinder" class="btn btn-tool" style="font-size: 10px;">⚪ Use Recommended Round Stock</button>
+            <button id="btn-apply-rec-plate" class="btn btn-tool" style="font-size: 10px;">📄 Use Recommended Plate Stock</button>
           </div>
         </div>
 
