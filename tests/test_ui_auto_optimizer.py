@@ -56,6 +56,19 @@ class TestAutoOptimizerUI(unittest.TestCase):
         self.assertIn("runOptimizerAnalysis", self.js)
         self.assertIn("applyOptimizerToolpath", self.js)
 
+    def test_fastest_mode_tool_breakage_warning_elements(self):
+        # 1. HTML elements
+        self.assertIn("opt-fastest-warning", self.html)
+        self.assertIn("tag-warning", self.html)
+        self.assertIn("Breakage Risk", self.html)
+
+        # 2. CSS styles
+        self.assertIn(".opt-fastest-warning-banner", self.css)
+        self.assertIn(".tag-warning", self.css)
+
+        # 3. JS warning toggle
+        self.assertIn("opt-fastest-warning", self.js)
+
 
 if __name__ == "__main__":
     unittest.main()

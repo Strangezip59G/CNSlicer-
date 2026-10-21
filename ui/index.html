@@ -465,9 +465,13 @@
               <div class="opt-card-head">
                 <span class="opt-card-icon">🚀</span>
                 <span class="opt-card-name">Fastest Machining</span>
+                <span class="opt-card-warn-icon" title="Caution: High cutter wear and breakage risk">⚠️</span>
               </div>
               <p class="opt-card-desc">Max material removal rate (MRR), aggressive DOC & stepover to minimize cycle time.</p>
-              <span class="opt-card-tag">High Speed</span>
+              <div class="opt-card-tags-row">
+                <span class="opt-card-tag">High Speed</span>
+                <span class="opt-card-tag tag-warning">⚠️ High Wear / Breakage Risk</span>
+              </div>
             </div>
 
             <div class="opt-profile-card" data-profile="tool_life">
@@ -504,6 +508,15 @@
               </div>
               <p class="opt-card-desc">Peak torque efficiency per Watt, reduced idle spindle run time, and minimized air rapids.</p>
               <span class="opt-card-tag">Eco & Low Power</span>
+            </div>
+          </div>
+
+          <!-- Fastest Mode Tool Breakage Warning Banner -->
+          <div class="opt-fastest-warning-banner" id="opt-fastest-warning" style="display: none;">
+            <div class="warn-banner-icon">⚠️</div>
+            <div class="warn-banner-body">
+              <b class="warn-banner-title">Caution: Maximum Tool Wear & Breakage Risk</b>
+              <p class="warn-banner-desc">Fastest Mode operates with aggressive chipload, cutting feedrate, and depth of cut. This significantly increases cutter wear, heat generation, and deflection, which can snap or break slender endmills (especially 1/8" cutters or in metals). Ensure rigid collet clamping, secure workpiece fixturing, and chip evacuation.</p>
             </div>
           </div>
         </div>

@@ -1508,6 +1508,69 @@ input[type="range"][orient="vertical"] {
   border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
+.opt-card-warn-icon {
+  font-size: 13px;
+  margin-left: auto;
+}
+
+.opt-card-tags-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.opt-card-tag.tag-warning {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+/* Fastest Mode Tool Breakage Warning Banner */
+.opt-fastest-warning-banner {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  animation: pulse-warning-border 2.5s infinite ease-in-out;
+}
+
+@keyframes pulse-warning-border {
+  0%, 100% { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2); }
+  50% { border-color: rgba(239, 68, 68, 0.85); box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.25); }
+}
+
+.warn-banner-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.warn-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.warn-banner-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #f87171;
+  letter-spacing: 0.3px;
+}
+
+.warn-banner-desc {
+  font-size: 10.5px;
+  color: #fca5a5;
+  line-height: 1.4;
+  margin: 0;
+}
+
 /* Material Property Preview */
 .material-property-preview {
   margin-top: 6px;

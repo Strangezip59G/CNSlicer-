@@ -2465,6 +2465,12 @@ function setupAutoOptimizerStudio() {
       document.querySelectorAll(".opt-profile-card").forEach((c) => c.classList.remove("active"));
       card.classList.add("active");
       optState.profile = card.dataset.profile || "balanced";
+
+      const warnBanner = document.getElementById("opt-fastest-warning");
+      if (warnBanner) {
+        warnBanner.style.display = optState.profile === "fastest" ? "flex" : "none";
+      }
+
       runOptimizerAnalysis();
     });
   });
@@ -2651,6 +2657,20 @@ function renderOptimizerAnalysis(data) {
 
   // 4. Update 3D Cutter preview diameter
   updateToolMesh(data.tool_diameter_mm || 3.175);
+
+  // 5. Fastest Mode Tool Breakage Warning Banner Toggle
+  const warnBanner = document.getElementById("opt-fastest-warning");
+  if (warnBanner) {
+    if (data.profile === "fastest" || data.profile_warning) {
+      warnBanner.style.display = "flex";
+      const descEl = warnBanner.querySelector(".warn-banner-desc");
+      if (descEl && data.profile_warning) {
+        descEl.textContent = data.profile_warning;
+      }
+    } else {
+      warnBanner.style.display = "none";
+    }
+  }
 }
 
 // 1-Click: Optimize, Slice, Fit G2/G3 Arcs & Render 3D Toolpaths

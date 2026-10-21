@@ -86,6 +86,7 @@ class OptimizerRecommendation:
     productivity_rationale: str
     summary_pill: str
     all_reasons: list[str]
+    profile_warning: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -126,6 +127,7 @@ class OptimizerRecommendation:
                 "surface_quality": self.surface_quality_rationale,
                 "productivity": self.productivity_rationale
             },
+            "profile_warning": self.profile_warning,
             "summary_pill": self.summary_pill,
             "all_reasons": self.all_reasons
         }
@@ -475,17 +477,34 @@ class MachiningOptimizer:
         # -------------------------------------------------------------
         # 6. RATIONALES FOR THE 4 CORE OPTIMIZER DIMENSIONS
         # -------------------------------------------------------------
+        profile_warning = None
+        if profile == "fastest":
+            profile_warning = (
+                "⚠️ CAUTION: Fastest Mode operates near machine feedrate and chipload ceilings. "
+                "This significantly accelerates cutter tool wear and substantially increases the risk of tool deflection "
+                "or cutter breakage, especially on slender endmills (≤1/8\" / 3.175mm) or hard materials. "
+                "Ensure tool sharpness, rigid collet clamping, and adequate chip evacuation."
+            )
+            reasons.append("⚠️ WARNING: Fastest Mode maximizes cutting forces and chip load; monitor tool wear closely to prevent cutter breakage.")
+
         time_rat = (
             f"Reduced cycle time by {time_sav}% ({baseline_time:.1f} min -> {opt_time:.1f} min). "
             f"Arc fitting and micro-move filtering prevent controller acceleration buffer starvation, "
             f"while adaptive stepdown ({stepdown}mm) and high MRR ({opt_mrr} cm³/min) eliminate redundant passes."
         )
 
-        tool_life_rat = (
-            f"Tool life index rated at {opt_tool_life:.0f}% (+{tool_gain}% over baseline). "
-            f"Chipload calculated at {fz:.4f} mm/tooth for {material.name} prevents cutter rubbing and overheating. "
-            f"Cutting force clamped at {fc_opt:.1f} N with {int(corner_decel*100)}% corner deceleration."
-        )
+        if profile == "fastest":
+            tool_life_rat = (
+                f"⚠️ HIGH WEAR & BREAKAGE RISK: Fastest Mode pushes cutter life index down to {opt_tool_life:.0f}%. "
+                f"Aggressive feedrate ({feed_xy:.0f} mm/min) and high chipload ({fz:.4f} mm/tooth) maximize cutting force ({fc_opt:.1f} N), "
+                f"which increases tool wear and risks cutter breakage on slender tools. Inspect endmill sharpness before running."
+            )
+        else:
+            tool_life_rat = (
+                f"Tool life index rated at {opt_tool_life:.0f}% (+{tool_gain}% over baseline). "
+                f"Chipload calculated at {fz:.4f} mm/tooth for {material.name} prevents cutter rubbing and overheating. "
+                f"Cutting force clamped at {fc_opt:.1f} N with {int(corner_decel*100)}% corner deceleration."
+            )
 
         surface_rat = (
             f"Surface cusp / scallop height reduced to {opt_scallop} µm ({scallop_red}% improvement). "
@@ -567,5 +586,6 @@ class MachiningOptimizer:
             surface_quality_rationale=surface_rat,
             productivity_rationale=prod_rat,
             summary_pill=summary_pill,
-            all_reasons=reasons
+            all_reasons=reasons,
+            profile_warning=profile_warning
         )

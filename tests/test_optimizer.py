@@ -64,6 +64,14 @@ class TestMachiningOptimizer(unittest.TestCase):
         self.assertGreaterEqual(rec_fast.stepdown_mm, rec_life.stepdown_mm)
         self.assertGreater(rec_life.optimized_metrics.tool_life_score_pct, rec_fast.optimized_metrics.tool_life_score_pct)
 
+        # Fastest mode must provide tool wear and tool breakage warnings
+        self.assertIsNotNone(rec_fast.profile_warning)
+        self.assertIn("tool wear", rec_fast.profile_warning.lower())
+        self.assertIn("break", rec_fast.profile_warning.lower())
+        self.assertIn("BREAKAGE", rec_fast.tool_life_optimizer_rationale)
+        self.assertTrue(any("breakage" in r.lower() for r in rec_fast.all_reasons))
+        self.assertIsNone(rec_life.profile_warning)
+
     def test_steel_material_restricts_doc_and_selects_rigid_tool(self):
         rec_steel = MachiningOptimizer.compute(
             analysis=self.analysis,
