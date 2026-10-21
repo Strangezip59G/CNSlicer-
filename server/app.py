@@ -19,6 +19,7 @@ from engine.slicer.tool import CuttingTool, ToolType
 from engine.slicer.subtractive import SubtractiveSlicer
 from engine.slicer.analyzer import DesignAnalyzer
 from engine.gcode.generator import GCodeGenerator
+from engine.gcode.validator import GCodeValidator
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT_DIR / "ui"
@@ -556,6 +557,24 @@ def gcode_text():
         "gcode": text,
         "lines": len(text.splitlines())
     })
+
+@app.get("/api/gcode/verify")
+def verify_gcode():
+    """Run virtual CNC controller emulation to verify and validate the generated G-code."""
+    global latest_slicing_result
+    if latest_slicing_result is None:
+        return jsonify({"error": "No toolpaths generated yet. Slice model first."}), 400
+
+    gen = GCodeGenerator(dialect="grbl")
+    text = gen.generate(latest_slicing_result, spindle_rpm=16000, program_name="CNC_SLICER_JOB")
+
+    validator = GCodeValidator(bed_width=400.0, bed_length=400.0)
+    report = validator.verify(text)
+    return jsonify({
+        "success": True,
+        "report": report.to_dict()
+    })
+
 
 @app.get("/api/gcode/download")
 def download_gcode():

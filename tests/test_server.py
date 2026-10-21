@@ -76,6 +76,16 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertIn("G21", gcode_data["gcode"])
         self.assertGreater(gcode_data["lines"], 20)
 
+        # Verify G-code diagnostics
+        verify_res = self.client.get("/api/gcode/verify")
+        self.assertEqual(verify_res.status_code, 200)
+        verify_data = verify_res.get_json()
+        self.assertTrue(verify_data["success"])
+        self.assertTrue(verify_data["report"]["is_valid"])
+        self.assertEqual(verify_data["report"]["status"], "PASS")
+        self.assertGreater(verify_data["report"]["cutting_blocks"], 10)
+        self.assertGreater(verify_data["report"]["spindle_rpm"], 0)
+
     def test_transforms_and_advanced_slicing_options(self):
         # First load sample pyramid
         self.client.get("/api/model/sample_pyramid")

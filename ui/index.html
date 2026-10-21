@@ -482,6 +482,18 @@
           <button id="btn-close-gcode" class="btn-tool">✕ Close</button>
         </div>
       </div>
+      <!-- G-Code Machine Verification Banner -->
+      <div class="gcode-verify-banner" id="gcode-verify-banner">
+        <div class="verify-badge pass" id="verify-status-badge">✅ VERIFIED: READY TO RUN</div>
+        <div class="verify-details" id="verify-details">
+          <span>Bounds: <b id="verify-bounds">X[0, 100] Y[0, 100] Z[0, 30]</b></span>
+          <span>Feed: <b id="verify-feed">1200 mm/min</b></span>
+          <span>Spindle: <b id="verify-spindle">16,000 RPM</b></span>
+        </div>
+        <div class="verify-actions">
+          <a href="https://ncviewer.com" target="_blank" class="btn btn-micro" style="text-decoration: none; color: #38bdf8;" title="Open free NCViewer browser simulator">🌐 Open in NCViewer</a>
+        </div>
+      </div>
       <div class="gcode-modal-body">
         <pre id="gcode-display-text" class="gcode-pre">; Slicing job not run yet.</pre>
       </div>

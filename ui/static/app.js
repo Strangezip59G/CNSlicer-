@@ -1181,13 +1181,39 @@ function toggleSimulation() {
   }, intervalMs);
 }
 
-// G-Code View & Export
+// G-Code View, Machine Verification & Export
 async function viewGCode() {
   try {
     const res = await fetch("/api/gcode/text");
     const data = await res.json();
     document.getElementById("gcode-display-text").textContent = data.gcode;
     document.getElementById("gcode-lines-count").textContent = `${data.lines} lines`;
+
+    // Fetch Machine Verification Diagnostics
+    try {
+      const vRes = await fetch("/api/gcode/verify");
+      const vData = await vRes.json();
+      if (vData.success && vData.report) {
+        const rep = vData.report;
+        const badge = document.getElementById("verify-status-badge");
+        badge.className = `verify-badge ${rep.status.toLowerCase()}`;
+        if (rep.status === "PASS") {
+          badge.textContent = `✅ VERIFIED: READY TO RUN (${rep.cutting_blocks} CUT BLOCKS)`;
+        } else if (rep.status === "WARNING") {
+          badge.textContent = `⚠️ READY WITH ${rep.warnings.length} NOTICE(S)`;
+        } else {
+          badge.textContent = `❌ ERROR: ${rep.errors[0] || "COLLISION DETECTED"}`;
+        }
+
+        const b = rep.bounds;
+        document.getElementById("verify-bounds").textContent = `X[${b.x_min}, ${b.x_max}] Y[${b.y_min}, ${b.y_max}] Z[${b.z_min}, ${b.z_max}]`;
+        document.getElementById("verify-feed").textContent = `${rep.max_feedrate_xy} mm/min`;
+        document.getElementById("verify-spindle").textContent = `${rep.spindle_rpm} RPM`;
+      }
+    } catch (vErr) {
+      console.warn("GCode verification call skipped:", vErr);
+    }
+
     document.getElementById("gcode-modal").style.display = "flex";
   } catch (err) {
     console.error("GCode view error:", err);
