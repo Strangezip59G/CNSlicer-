@@ -3,7 +3,11 @@ import io
 import sys
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    ROOT_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+else:
+    ROOT_DIR = Path(__file__).resolve().parent.parent
+
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -22,7 +26,6 @@ from engine.slicer.machine import STANDARD_CNC_MACHINES, get_machine_profile, CN
 from engine.gcode.generator import GCodeGenerator
 from engine.gcode.validator import GCodeValidator
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT_DIR / "ui"
 STATIC_DIR = UI_DIR / "static"
 
