@@ -2,7 +2,7 @@
 
 [![Tests](https://img.shields.io/badge/Tests-58%20Passing-brightgreen.svg)](tests/)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64-lightgrey.svg)](dist/)
 [![Design](https://img.shields.io/badge/Design-Apple%20HIG%20Glass-000000.svg)](ui/)
 
@@ -146,4 +146,4 @@ CNSlicer/
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) — see the LICENSE file for details.
+This project is licensed under the [Apache License, Version 2.0](LICENSE) — see the LICENSE file for details.
