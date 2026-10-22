@@ -1,11 +1,36 @@
-api keys.txt
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Distribution & Build
 build/
 dist/
-.venv/
-__pycache__/
-*.pyc
+*.spec.bak
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Cache
+.pytest_cache/
+.coverage
+htmlcov/
 model cache/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp
+api keys.txt
+
+# Media / Local outputs
+outputs/
 output mp4/
-outputs/*.mp4
-anilines_test/AniLines-Anime-Lineart-Extractor/
-anilines_test/AniLines-source/

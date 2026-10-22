@@ -1,91 +1,149 @@
-# Anime-to-Desmos Agent (prototype)
+# CNSlicer — Subtractive Studio
 
-A local Python/OpenCV prototype that extracts frames from a downloaded anime clip, blends local source colors across a triangular mesh, and traces contours, and sends the resulting parametric line segments to an embedded Desmos calculator.
+[![Tests](https://img.shields.io/badge/Tests-58%20Passing-brightgreen.svg)](tests/)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20x64-lightgrey.svg)](dist/)
+[![Design](https://img.shields.io/badge/Design-Apple%20HIG%20Glass-000000.svg)](ui/)
 
-## Native Windows desktop dashboard
+**CNSlicer** is an intelligent, high-precision subtractive 3D CAM slicer and desktop studio tailored for CNC routers and industrial vertical machining centers. It transforms arbitrary 3D models (`.STL`, `.OBJ`) into production-ready G-code toolpaths with material physics optimization, tool wear modeling, live 3D bed simulation, and Apple-grade engineering UI.
 
-The desktop dashboard offers two animation styles: **Color** (triangle fills with smooth colored outlines) and **Sketch** (monochrome contours). Sketch mode uses VTracer's native cubic-spline vectorizer to produce smooth Bézier curves, then assigns those curves to anime-part regions and spatial tiles so busy sections cannot consume the whole expression budget. The anime parser runs locally on the CPU. On the first sketch build it downloads the Mask2Former v3 weights (about 432 MB) into the app's `model cache` folder; later builds reuse them. This extra analysis makes sketch tracing slower, and the status line announces the first download. Pixel cues cannot reliably identify every semantic object: smoke, tree trunks, jewelry, and a particular character's dress are approximated from the parser class, color, and shape. VTracer paths are converted into Desmos cubic parametric expressions; OpenCV tracing remains as a fallback. Video extraction and tracing run in a background worker with progress shown in the window. Use **Render MP4 on CPU** to rasterize the saved JSXGraph polygons and curves locally with OpenCV. It renders frames in up to four CPU worker processes, uses 2× supersampling for antialiased output, and keeps the generated equation JSON paired with the MP4. The JSXGraph app window remains available to inspect and play the equations. Sketch mode also retains **Full-FPS Sketch MP4**, which captures every source frame through the Desmos API and can take longer.
+---
 
-From the project folder in VS Code, start it with:
+## Key Features
 
+### 1. 1-Click Auto-Pilot CAM
+* **Automatic Geometry Analysis:** Automatically measures thin walls, overhang angles, draft slopes, deep pockets, and minimum internal corner radii.
+* **Smart Tool Selection:** Chooses optimal flat endmills and ballnose cutters from the tooling library based on part geometry.
+* **Adaptive Multi-Pass Slicing:** Generates constant Z-level roughing paths, pocket clearing offsets, and 3D surface finishing passes automatically.
+* **Feeds & Speeds Optimization:** Automatically calculates spindle RPM, cutting feed rates, plunge rates, and stepover distances tailored to selected stock material.
+
+### 2. Multi-Axis Subtractive CAM Engine
+* **Constant Z-Level Contouring:** High-speed 2D cross-section planar slicing with PyClipper offset buffering.
+* **Collinear & Mitre Join Filtering:** Eliminates micro-move polygon bloat and machine stuttering through polygon simplification.
+* **Surface Scallop Finishing:** Constant scallop-height finishing passes using ballnose tooling.
+* **Toolpath Simulator:** 3D animated toolhead traversal with color-coded moves:
+  * <span style="color:#22c55e;">Green</span>: Cutting feed moves
+  * <span style="color:#ef4444;">Red</span>: Rapid travel moves ($G0$)
+  * <span style="color:#3b82f6;">Cyan</span>: Plunge moves
+
+### 3. Machining Physics & Optimizer
+* **Kienzle Specific Cutting Force Model:** Predicts cutting forces ($F_c$), deflection, and spindle power consumption ($P_c$) across materials.
+* **Taylor Tool Life & Wear Modeling:** Computes tool wear index ($V_B$) and warns when feed/speed combinations risk premature cutter breakage.
+* **Multi-Objective Trade-Off Modes:**
+  * **Fastest:** Maximum material removal rate (MRR) for rapid prototyping.
+  * **Balanced:** Optimum balance between production cycle time and tool longevity.
+  * **Tool Preserving:** Conservative chip loads and lower surface footage to maximize endmill life.
+  * **Fine Finish:** Micro-stepovers for mirror-finish surfaces and minimal hand polishing.
+* **G2/G3 Bi-Arc Compressor:** Converts dense linear point-to-point sequences ($G1$) into smooth circular arcs ($G2/G3$), shrinking G-code file sizes by up to 70% while improving CNC controller lookahead.
+
+### 4. Comprehensive Machine Profiles & 3D Spoilboards
+Dynamically scales 3D bed envelopes, spoilboard geometry, clamping guides, wireframe travel boundary cages, and spindle limits:
+* **Industrial Machining Centers:**
+  * **Haas VF-2:** $762 \times 406 \times 508\text{ mm}$ ($30 \times 16 \times 20\text{ in}$), 12,000 RPM inline direct-drive, cast-iron table with 14 mm T-slots and coolant troughs.
+  * **DMG MORI CMX 600 V:** $600 \times 560 \times 510\text{ mm}$, 12,000 RPM, heavy production VMC table.
+  * **Brother SPEEDIO S500X2:** $500 \times 400 \times 300\text{ mm}$, 16,000 RPM, $50\text{ m/min}$ rapids.
+  * **Datron neo:** $520 \times 420 \times 220\text{ mm}$, 40,000 RPM high-speed mill with integrated vacuum chuck bed.
+  * **Tormach 1100M:** $457 \times 279 \times 412\text{ mm}$, 7,500 RPM, cast-iron precision ground table.
+  * **Avid CNC PRO4848:** $1250 \times 1250 \times 200\text{ mm}$ (4×4 ft) industrial gantry router.
+* **Desktop & Benchtop Mills:**
+  * **Makera Carvera:** $360 \times 240 \times 140\text{ mm}$ (Automatic Tool Changer)
+  * **Carbide Nomad 3:** $200 \times 200 \times 76\text{ mm}$ (Enclosed precision benchtop)
+  * **Bantam Tools Desktop CNC:** $178 \times 127 \times 89\text{ mm}$ (PCB & precision aluminum prototyping)
+  * **Shapeoko 4 Standard:** $444 \times 444 \times 101\text{ mm}$
+  * **Inventables X-Carve 1000mm:** $750 \times 750 \times 65\text{ mm}$
+  * **Genmitsu 3018-PROVer & PROVerXL 4030**
+* **Custom Spoilboard:** Fully configurable custom dimensions, spindle RPM caps, and feed rates.
+
+### 5. Apple Human Interface Design
+* **Pure Vector Geometry:** Zero raw unicode emojis; handcrafted SVG iconography throughout.
+* **Glass Sliding Tabs:** Interactive segmented controls with frosted glass sliding indicators.
+* **Dark / Light Dynamic Theme:** Engineered contrast with Cupertino dark slate and silver highlights.
+* **Collapsible & Resizable Sidebars:** Drag-to-resize side inspector with double-click auto-collapse.
+
+---
+
+## Installation & Downloads
+
+### Option A: Standard Windows Installer (Recommended)
+Download and run the installer wizard (like Creality Print / Cura):
+* **Installer:** `dist/CNSlicer-Setup-v1.0-Windows-x64.exe`
+* Installs to Program Files or User Apps
+* Creates Start Menu and Desktop shortcuts
+* Associates `.stl` and `.gcode` files
+
+### Option B: Portable Release ZIP
+* **Package:** `dist/CNSlicer-v1.0-Windows-x64.zip`
+* Unzip and run `CNSlicer.exe` directly without administrative privileges.
+
+---
+
+## Developer Setup
+
+### Prerequisites
+* Windows 10/11 (64-bit)
+* Python 3.10+
+* Microsoft Edge WebView2 (built into Windows 10/11)
+
+### 1. Clone & Setup Virtual Environment
+```powershell
+git clone https://github.com/CNSlicer/CNSlicer.git
+cd CNSlicer
+
+# Create and activate virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Install dependencies
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 2. Run Desktop Application
 ```powershell
 .\.venv\Scripts\python.exe desktop_app.py
 ```
 
-To build a clickable Windows desktop app, double-click `Build-Desktop-Exe.bat`. It creates `dist\Anime to Desmos Studio\Anime to Desmos Studio.exe`; enter the Desmos key in the `api keys.txt` file beside the executable. The JSXGraph renderer opens in an app-style window and uses the installed Edge or Chrome rendering engine.
-
-Choose a video, extract frames, select Color or Sketch, then build the animation. In the graph window, use **Play** or drag the `f` slider. **Record MP4** captures each sampled Desmos frame and saves the result in that job's folder under `outputs`. The animation JSON is saved alongside it. For smooth source-rate sketch output, choose Sketch mode and click **Full-FPS Sketch MP4**; in the opened Desmos window, click **Render full-FPS sketch**. Stop is available to save a partial render. The Desmos API key is read from the `DESMOS_API_KEY` environment variable; it is not written to the output files.
-
-Color mode uses more graph expressions. Start with a 28–32 px triangle size and 1–2 sampled frames per second; use a smaller triangle size for more color detail if your computer handles the graph well. Sketch mode keeps source frames at up to 1920 px and automatically adapts edge sensitivity per frame using luminance, color contrast, and edge density. It then assigns separate curve-fitting profiles to the parser's semantic regions. Its 2,400-segment default can be raised to 5,000, at the cost of larger equation files and slower Desmos playback. Rebuild the animation after changing quality settings; previously saved JSON/MP4 files keep their original detail.
-
-## What works in this MVP
-- Upload a local video (MP4/MOV/MKV/AVI/WEBM).
-- Extract frames from up to 20 seconds, sampled at 0.25–120 frames/second (the desktop extractor can use the source FPS).
-- Select a frame to trace.
-- Smooth textured areas while preserving strong edges, group colors in perceptual Lab space, clean isolated pixels, and convert contours to adjustable cubic curves.
-- Generate Desmos parametric expressions and load them into an embedded Desmos calculator when an API key is configured.
-- Download the expression JSON.
-
-## Important limitations
-This is a proof of concept, not a complete anime-to-vector system. It currently traces one selected frame at a time. It draws simplified filled color regions with contour strokes; complex scenes can generate many expressions. Temporal character tracking, automatic scene understanding, region filling, and full animation export are future phases.
-
-## Requirements
-- Windows 10/11
-- Python 3.10 or newer (Python 3.10 or 3.11 recommended)
-- A Desmos API key for the embedded calculator. Request one through the Desmos API documentation: https://www.desmos.com/api/v1.12/docs/index.html
-- A downloaded video clip you have permission to process. Start with a 10–20 second clip.
-
-## Setup (Windows PowerShell)
+### 3. Run Test Suite
 ```powershell
-cd anime_to_desmos_agent
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-$env:DESMOS_API_KEY="YOUR_DESMOS_API_KEY"
-python app.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
-Then open http://127.0.0.1:5000 in your browser.
+*(All 58 test cases passing)*
 
-If PowerShell blocks activation, run:
+### 4. Build Standalone Executable & Installer
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\.venv\Scripts\Activate.ps1
+# 1. Build PyInstaller bundle
+.\.venv\Scripts\pyinstaller --noconfirm --clean CNSlicer.spec
+
+# 2. Compile Windows Setup Installer (Requires Inno Setup 6)
+& "C:\Users\Friday\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\cnslicer.iss
 ```
 
-## How to use
-1. Open the local app.
-2. Select a video file.
-3. Choose a clip duration up to 20 seconds and a sample FPS (2 FPS is a reasonable start).
-4. Upload and wait for the thumbnails.
-5. Select a frame.
-6. For detail, start with 16 outline palette colors, image smoothing 2, curve smoothing 6, triangle size 18 px, and 800 max outline segments. Triangle fills blend source pixels locally for a much wider range of shades. Smaller triangles capture more local color changes but create many Desmos expressions and can slow the graph. The default 18 px mesh is a faster starting point.
-7. Click **Trace selected frame**.
-8. Inspect the graph and download `desmos_expressions.json`.
+---
 
+## Architecture
 
-## Monochrome Desmos animation mode
-After uploading a clip, click **Build sketch animation**. Python traces each sampled frame with automatic luminance and color-channel edge detection; the page adds a Desmos slider named f that selects each frame, so you can drag or play f to move through the line drawings; the animation JSON can also be downloaded. Sensitivity adjusts to each frame without a manual control. This mode is outline-only and keeps one frame's expressions active at a time. The default 2,400 segments per frame preserves more contours than the previous 1,200 cap. Use 1 to 2 sampled frames per second for a responsive preview; higher frame rates improve motion smoothness but increase build and playback work.
+```
+CNSlicer/
+├── assets/                  # Application icons (.ico, .png) and visual assets
+├── engine/                  # Core subtractive computational geometry engine
+│   ├── slicer/              # Slicing logic, stock models, tools, machine profiles
+│   ├── gcode/               # G-code generator and formal syntax validator
+│   ├── optimizer/           # Kienzle physics, tool wear model, G2/G3 arc compressor
+│   └── lidar/               # Toolhead surface scanning simulation
+├── installer/               # Inno Setup compiler scripts (.iss)
+├── server/                  # Flask backend providing REST APIs for local IPC
+├── ui/                      # Apple HIG frontend
+│   ├── index.html           # Single-page studio interface
+│   └── static/              # CSS styles, Three.js shaders, client application logic
+├── tests/                   # 58 unit tests covering engine, physics, UI & server
+├── desktop_app.py           # Native Edge WebView2 desktop application entry point
+├── CNSlicer.spec            # PyInstaller build specification
+└── requirements.txt         # Python package dependencies
+```
 
-## Troubleshooting
-- **Video will not open:** convert it to H.264 MP4 and retry.
-- **Graph is slow:** increase triangle size, reduce max segments, or lower palette size.
-- **No embedded graph:** confirm `DESMOS_API_KEY` was set in the same PowerShell window before launching Python.
-- **Contours look messy:** try a simpler frame with a plain background and lower the number of colors.
+---
 
-## Roadmap
-1. Character segmentation and background separation.
-2. Temporal tracking and shared motion variables.
-3. Multi-frame interpolation and animation timeline.
-4. Desmos state export/import and project saving.
+## License
 
-## Reference workflow
-The Desmos playback page now requests frame equations as the `f` slider moves rather than embedding every frame in one large page. This adapts the on-demand expression workflow from [DesmosBezierRenderer](https://github.com/kevinjycui/DesmosBezierRenderer). Sketch vectorization uses [VTracer](https://github.com/visioncortex/vtracer)'s Windows-compatible native library and spline fitting; the repository's web app and other unused components are not included in this project.
-
-
-
-## DesmosPlayer export
-
-After building an animation, the job folder contains `desmos_player_program.js` and the matching `desmos_sketch_animation.json` or `desmos_color_animation.json`. For older animation JSON files, use **Create DesmosPlayer loader** in the desktop app to generate a matching loader without tracing again. The small JavaScript loader is for [DesmosPlayer](https://github.com/jason-woolf/DesmosPlayer), which runs as a browser userscript on Desmos.com. In Chrome or Edge, install and enable the userscript, open the Desmos Graphing Calculator, choose **+ → Program**, paste the loader into the Program expression, and click its round icon. When prompted, select the matching animation JSON from the same job folder. Then click DesmosPlayer's **Start** button. It creates the frame equations, updates them in grouped steps, and advances `f` as a frame counter.
-
-The animation data stays in the JSON file rather than being pasted into a huge Program expression. DesmosPlayer is browser-only and needs access to the local JSON file when the loader runs.
+This project is licensed under the [MIT License](LICENSE) — see the LICENSE file for details.

@@ -3,109 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CNC Milling Slicer — Subtractive Studio</title>
+  <title>CNSlicer — Subtractive Studio</title>
   <link rel="icon" type="image/png" href="/static/icon.png">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=3.0">
   <!-- Offline Embedded Three.js, OrbitControls, and TransformControls (100% Standalone) -->
   <script src="/static/libs/three.min.js"></script>
   <script src="/static/libs/OrbitControls.js"></script>
   <script src="/static/libs/TransformControls.js"></script>
 </head>
-<body>
+<body class="apple-theme">
   <div class="app-container">
-    <!-- Top Header Toolbar -->
-    <header class="app-header">
-      <div class="brand">
-        <span class="brand-icon">⚙️</span>
-        <span class="brand-title">CNC Milling Slicer</span>
-        <span class="brand-tag">Subtractive Studio v1.0</span>
-        <div class="machine-header-badge" id="header-machine-badge" title="Active Milling Machine Profile (Click to change)">
-          <span class="machine-status-dot"></span>
-          <span id="header-machine-name">Genmitsu 3018-PROVer</span>
-          <span class="machine-bed-pill" id="header-machine-bed">300×180 mm</span>
+    <!-- Top Header Bar (Panel 2 from Sketch & macOS Unified Toolbar) -->
+    <header class="app-header app-header-apple">
+      <div class="header-left-zone">
+        <div class="brand">
+          <span class="brand-icon">
+            <svg class="svg-icon brand-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </span>
+          <span class="brand-title">CNSlicer</span>
+          <span class="brand-tag">Studio v1.0</span>
         </div>
       </div>
-      <div class="header-actions">
+
+      <!-- Primary Operations Bar (Panel 2 from User Sketch) -->
+      <div class="top-operations-bar">
         <input type="file" id="stl-file-input" accept=".stl,.obj" style="display: none;">
-        <button id="btn-upload-stl" class="btn btn-secondary">
-          <span class="icon">📁</span> Insert 3D Model (.STL)
+        <button id="btn-upload-stl" class="btn btn-apple-toolbar" title="Open 3D Model (.stl, .obj)">
+          <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> Open Model
         </button>
-        <button id="btn-load-sample2" class="btn btn-secondary" title="Load sample 3D pyramid model">
-          <span class="icon">🏛️</span> Sample Part
+        <button id="btn-load-sample2" class="btn btn-apple-toolbar btn-subtle" title="Load sample 3D pyramid model">
+          <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span> Sample Part
         </button>
-        <button id="btn-scan-lidar" class="btn btn-lidar" title="Scan physical spoilboard for surface warpage">
-          <span class="icon">📡</span> LiDAR Auto-Level
-        </button>
-        <button id="btn-analyze-model" class="btn btn-accent" title="Analyze model silhouette, volume & optimal stock dimensions">
-          <span class="icon">🔍</span> Analyze Geometry
-        </button>
-        <button id="btn-auto-mode" class="btn btn-auto" title="⚡ Auto Mode: Automatically select optimal tool, machining strategy, cutting parameters, and speeds & feeds">
-          <span class="icon">⚡</span> Auto Mode
-        </button>
-        <button id="btn-slice" class="btn btn-primary" title="Calculate subtractive layered clearing toolpaths">
-          <span class="icon">🔪</span> Slice Stock
-        </button>
-        <button id="btn-view-gcode" class="btn btn-secondary" disabled title="Inspect generated G-code text">
-          <span class="icon">📜</span> View G-Code
-        </button>
-        <button id="btn-export-gcode" class="btn btn-success" disabled title="Download machine G-code file">
-          <span class="icon">💾</span> Download G-Code
-        </button>
-      </div>
-    </header>
 
-    <!-- Studio Navigation Tabs (Creality Slicer Style) -->
-    <nav class="studio-tab-bar">
-      <div class="tab-group-left">
-        <button class="studio-tab active" id="tab-btn-manual" data-tab="tab-manual" title="Manual parameter configuration and toolpath controls">
-          <span class="tab-icon">🛠️</span>
-          <span class="tab-label">Manual CAM Studio</span>
-          <span class="tab-badge">Full Control</span>
-        </button>
-        <button class="studio-tab" id="tab-btn-auto-optimizer" data-tab="tab-auto-optimizer" title="Automatic Machining Optimizer based on physics, material, machine & geometry">
-          <span class="tab-icon">⚡</span>
-          <span class="tab-label">Auto-Machining Optimizer</span>
-          <span class="tab-badge auto-badge-pulse">AI Pareto CAM</span>
-        </button>
-      </div>
-      <div class="tab-group-right">
-        <div class="optimizer-quick-status" id="opt-quick-status">
-          <span class="opt-status-pill">⚡ Priority: <b id="opt-status-profile">Balanced</b></span>
-          <span class="opt-status-pill">🪵 Material: <b id="opt-status-material">Wood / MDF</b></span>
-          <span class="opt-status-pill">⏱️ Time Est: <b id="opt-status-time" class="highlight-green">- min</b></span>
-        </div>
-      </div>
-    </nav>
-
-    <!-- Main Workspace -->
-    <div class="workspace">
-      <!-- Left Sidebar: Manual Settings Accordions (Creality Slicer Style) -->
-      <aside class="sidebar-left" id="sidebar-manual-cam">
-        <!-- Panel: Smart Auto Mode Optimizer -->
-        <div class="panel auto-mode-card" id="card-auto-mode">
-          <div class="auto-mode-header">
-            <div class="auto-title-group">
-              <span class="auto-badge-icon">⚡</span>
-              <div>
-                <h3 class="panel-title" style="margin: 0; padding: 0; cursor: default;">Smart Auto-Mode</h3>
-                <span class="auto-subtitle">1-Click Tool, Strategy & Speeds Optimizer</span>
-              </div>
-            </div>
-            <button id="btn-trigger-auto-mode" class="btn btn-auto-sm" title="Analyze model and auto-configure all cutting parameters">⚡ Auto Optimize</button>
-          </div>
-          <div id="auto-mode-telemetry" style="display: none; margin-top: 10px;">
-            <div class="auto-summary-pill" id="auto-summary-pill">Optimal: 1/8" Endmill • Concentric • 10,000 RPM</div>
-            <ul class="auto-reasons-list" id="auto-reasons-list">
-            </ul>
-          </div>
-        </div>
-
-        <!-- Panel 0: CNC Milling Machine Profile (3D Printer Slicer Style) -->
-        <div class="panel">
-          <h3 class="panel-title">🏭 CNC Milling Machine</h3>
-          <div class="control-group">
-            <label>Machine Model:</label>
-            <select id="machine-select">
+        <!-- Selected Machine Capsule (Sketch: Selected machine) -->
+        <div class="machine-select-capsule" title="Select CNC Milling Machine Profile">
+          <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="4" y="8" width="4" height="12" rx="1"/><rect x="16" y="8" width="4" height="12" rx="1"/><line x1="12" y1="8" x2="12" y2="15"/><circle cx="12" cy="16" r="1.5"/></svg></span>
+          <select id="machine-select" class="apple-select-transparent">
+            <optgroup label="Desktop & Benchtop CNC">
               <option value="genmitsu_3018" selected>Genmitsu 3018-PROVer (300 × 180 mm)</option>
               <option value="genmitsu_4030">Genmitsu PROVerXL 4030 (400 × 300 mm)</option>
               <option value="shapeoko_4">Shapeoko 4 Standard (444 × 444 mm)</option>
@@ -113,627 +47,138 @@
               <option value="bantam_desktop">Bantam Tools Desktop CNC (178 × 127 mm)</option>
               <option value="x_carve_1000">Inventables X-Carve 1000mm (750 × 750 mm)</option>
               <option value="carvera_atc">Makera Carvera ATC (360 × 240 mm)</option>
+            </optgroup>
+            <optgroup label="Industrial Machining Centers">
+              <option value="tormach_1100m">Tormach 1100M (457 × 279 mm • BT30)</option>
+              <option value="datron_neo">Datron neo (520 × 420 mm • 40k RPM)</option>
+              <option value="brother_speedio">Brother SPEEDIO S500X2 (500 × 400 mm)</option>
+              <option value="haas_vf2">Haas VF-2 VMC (762 × 406 mm • 40-Taper)</option>
+              <option value="dmg_mori_cmx600v">DMG MORI CMX 600 V (600 × 560 mm)</option>
+              <option value="avid_pro4848">Avid CNC PRO4848 (1250 × 1250 mm • 4×4 ft)</option>
+            </optgroup>
+            <optgroup label="Custom Spoilboard">
               <option value="custom_mill">Custom CNC Milling Machine...</option>
-            </select>
-          </div>
-
-          <div class="stats-grid" style="margin-bottom: 8px;">
-            <div class="stat-box">
-              <span class="stat-label">Bed Area</span>
-              <span class="stat-val" id="machine-stat-bed">300 × 180 mm</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Max Z Travel</span>
-              <span class="stat-val" id="machine-stat-z">45 mm</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Bed Layout</span>
-              <span class="stat-val" id="machine-stat-layout" style="font-size: 11px;">Aluminum T-Slot</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Max Spindle</span>
-              <span class="stat-val" id="machine-stat-spindle">10,000 RPM</span>
-            </div>
-          </div>
-
-          <!-- Custom Machine Dimensions (displayed only when custom_mill is selected) -->
-          <div id="custom-machine-controls" style="display: none; background: #18181c; padding: 8px; border-radius: 4px; margin-bottom: 8px; border: 1px dashed #3f3f46;">
-            <div class="control-row">
-              <div>
-                <label>Bed Width X (mm)</label>
-                <input type="number" id="custom-bed-w" value="400" min="50" max="2000">
-              </div>
-              <div>
-                <label>Bed Length Y (mm)</label>
-                <input type="number" id="custom-bed-l" value="400" min="50" max="2000">
-              </div>
-            </div>
-            <div class="control-row">
-              <div>
-                <label>Max Z Travel (mm)</label>
-                <input type="number" id="custom-bed-z" value="100" min="20" max="500">
-              </div>
-              <div>
-                <label>Max RPM</label>
-                <input type="number" id="custom-bed-rpm" value="16000" min="1000" max="60000" step="1000">
-              </div>
-            </div>
-            <button id="btn-apply-custom-bed" class="btn btn-tool" style="width: 100%; justify-content: center;">Apply Custom Bed Dimensions</button>
-          </div>
-
-          <!-- Visual Bed Toggles -->
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="chk-show-travel-cage" checked> Machine Travel Envelope Cage</label>
-          </div>
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="chk-show-bed-features" checked> T-Tracks / Clamping Dogholes</label>
-          </div>
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="chk-show-bed-numbers" checked> Bed Positioning Rulers & Numbers</label>
-          </div>
+            </optgroup>
+          </select>
         </div>
 
-        <!-- Panel 1: Inserted Model Info -->
-        <div class="panel">
-          <h3 class="panel-title">📦 Inserted 3D Model</h3>
-          <div class="control-group">
-            <div id="model-name-badge" class="model-badge">Sample Pyramid (3D)</div>
-          </div>
-          <div class="control-row">
-            <div>
-              <label>Model X (mm)</label>
-              <input type="text" id="model-dim-x" value="60.0" readonly>
-            </div>
-            <div>
-              <label>Model Y (mm)</label>
-              <input type="text" id="model-dim-y" value="60.0" readonly>
-            </div>
-          </div>
-          <div class="control-row">
-            <div>
-              <label>Model Z (mm)</label>
-              <input type="text" id="model-dim-z" value="30.0" readonly>
-            </div>
-            <div>
-              <label>Triangles</label>
-              <input type="text" id="model-poly-count" value="36" readonly>
-            </div>
-          </div>
+        <!-- Analyze Geometry (Sketch: Analyze geometry) -->
+        <button id="btn-analyze-model" class="btn btn-apple-toolbar" title="Analyze model silhouette, volume & optimal stock dimensions">
+          <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></span> Analyze Geometry
+        </button>
+
+        <!-- LiDAR Auto-Level with Connected Badge (Sketch: Lidar-level auto + 'only when connected lidar') -->
+        <div class="lidar-toolbar-group" title="Scan spoilboard bed flatness using toolhead optical LiDAR">
+          <button id="btn-scan-lidar" class="btn btn-apple-toolbar btn-lidar-apple">
+            <span class="lidar-live-dot"></span>
+            <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg></span> LiDAR Auto-Level
+          </button>
+          <span class="lidar-connected-tag" id="lidar-status-badge">Connected</span>
         </div>
+      </div>
 
-        <!-- Panel 2: Tool & Cutter Specs -->
-        <div class="panel">
-          <h3 class="panel-title">🛠️ Tool Library</h3>
-          <div class="control-group">
-            <label>Endmill Bit:</label>
-            <select id="tool-select">
-              <option value="flat_1_8" selected>1/8" (3.175mm) Flat Endmill</option>
-              <option value="flat_1_4">1/4" (6.35mm) Flat Endmill</option>
-              <option value="flat_6mm">6.0mm Roughing Endmill</option>
-              <option value="v_bit_60">60° V-Carve Bit</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Panel 3: Infill / Pocket Clearing Pattern -->
-        <div class="panel">
-          <h3 class="panel-title">🪚 Infill & Pocket Clearing</h3>
-          <div class="control-group">
-            <label>Clearing Pattern:</label>
-            <select id="clearing-pattern">
-              <option value="concentric" selected>Concentric (Spiral Offsets)</option>
-              <option value="zigzag">Zig-Zag (Parallel Raster)</option>
-            </select>
-          </div>
-          <div class="control-row">
-            <div>
-              <label>Stepdown / Layer (mm)</label>
-              <input type="number" id="cut-stepdown" value="1.0" step="0.2" min="0.1" max="10">
-            </div>
-            <div>
-              <label>Stepover (%)</label>
-              <input type="number" id="cut-stepover" value="45" min="10" max="90">
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 4: Walls, Finish & Holding Tabs -->
-        <div class="panel">
-          <h3 class="panel-title">🛡️ Walls, Finish & Holding Tabs</h3>
-          <div class="control-row">
-            <div>
-              <label>Finishing Allowance (mm)</label>
-              <input type="number" id="stock-to-leave" value="0.0" step="0.1" min="0" max="2" title="Stock to leave for final cleanup pass">
-            </div>
-            <div>
-              <label>Holding Tabs</label>
-              <select id="tabs-count">
-                <option value="0" selected>None</option>
-                <option value="2">2 Tabs</option>
-                <option value="4">4 Tabs</option>
-                <option value="6">6 Tabs</option>
-              </select>
-            </div>
-          </div>
-          <div class="control-row" id="tabs-specs-row">
-            <div>
-              <label>Tab Width (mm)</label>
-              <input type="number" id="tab-width" value="5.0" min="1" max="20">
-            </div>
-            <div>
-              <label>Tab Height (mm)</label>
-              <input type="number" id="tab-height" value="2.0" min="0.5" max="10">
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 5: Speeds & Feeds -->
-        <div class="panel">
-          <h3 class="panel-title">⚡ Speeds & Feeds</h3>
-          <div class="control-row">
-            <div>
-              <label>Cutting Feed (mm/min)</label>
-              <input type="number" id="feed-xy" value="1200" step="100">
-            </div>
-            <div>
-              <label>Plunge Rate (mm/min)</label>
-              <input type="number" id="feed-z" value="300" step="50">
-            </div>
-          </div>
-          <div class="control-group">
-            <label>Spindle Speed (RPM):</label>
-            <input type="number" id="spindle-rpm" value="16000" step="1000">
-          </div>
-        </div>
-
-        <!-- Panel 6: Raw Stock Material & Geometry -->
-        <div class="panel">
-          <h3 class="panel-title">🪵 Raw Stock Material & Geometry</h3>
-          <div class="control-group">
-            <label>Material Shape:</label>
-            <select id="stock-shape">
-              <option value="box" selected>Rectangular Block / Cube</option>
-              <option value="plate">Metal Plate (Rectangular Sheet)</option>
-              <option value="cylinder">Cylinder / Round Bar</option>
-              <option value="round_plate">Cylindrical Metal Plate / Disc</option>
-              <option value="conforming">Conforming Outline (Follows Silhouette)</option>
-            </select>
-          </div>
-
-          <!-- Box & Plate Dimensions -->
-          <div id="stock-box-dims">
-            <div class="control-row">
-              <div>
-                <label>Width X (mm)</label>
-                <input type="number" id="stock-w" value="70" min="10" max="600">
-              </div>
-              <div>
-                <label>Length Y (mm)</label>
-                <input type="number" id="stock-l" value="70" min="10" max="600">
-              </div>
-            </div>
-          </div>
-
-          <!-- Cylinder & Round Plate Dimensions -->
-          <div id="stock-cylinder-dims" style="display: none;">
-            <div class="control-group">
-              <label>Diameter D (mm):</label>
-              <input type="number" id="stock-d" value="90" min="10" max="600">
-            </div>
-          </div>
-
-          <!-- Conforming Outline Clearance -->
-          <div id="stock-conforming-dims" style="display: none;">
-            <div class="control-group">
-              <label>XY Clearance Margin (mm):</label>
-              <input type="number" id="stock-conforming-margin" value="5.0" min="1.0" max="50.0" step="0.5">
-            </div>
-          </div>
-
-          <!-- Common Thickness & Position -->
-          <div class="control-row">
-            <div>
-              <label>Thickness Z (mm)</label>
-              <input type="number" id="stock-t" value="32" min="1" max="200">
-            </div>
-            <div>
-              <label>Stock Center</label>
-              <input type="text" id="stock-pos" value="Auto-Linked" readonly>
-            </div>
-          </div>
-
-          <!-- Stock Following Design / Auto Alignment -->
-          <div class="checkbox-row" style="margin-top: 6px;">
-            <label><input type="checkbox" id="stock-lock-to-model" checked> Lock Stock to Model (Follow Design)</label>
-          </div>
-
-          <div class="drawer-actions" style="margin-top: 8px;">
-            <button id="btn-fit-stock-to-design" class="btn btn-tool" title="Resize stock to fit model with margins">📐 Auto-Fit Stock</button>
-            <button id="btn-center-stock-model" class="btn btn-tool" title="Align stock center directly to model">🎯 Center Stock</button>
-          </div>
-
-          <div class="control-group" style="margin-top: 8px;">
-            <label>LiDAR Surface Flatness:</label>
-            <div class="metric-val" id="surface-warp-val">0.08 mm (Auto-Leveled)</div>
-          </div>
-
-          <!-- Real Machine Mounting & Clamping Coordinates -->
-          <div class="mounting-guide-card" id="stock-clamping-card">
-            <div class="mounting-guide-title">📍 Machine Clamping Coordinates</div>
-            <div class="mounting-guide-row">
-              <span class="guide-label">Work Origin (G54):</span>
-              <span id="clamp-span-center" class="coord-badge">X: [-35.0, +35.0] Y: [-35.0, +35.0] mm</span>
-            </div>
-            <div class="mounting-guide-row">
-              <span class="guide-label">Physical Spoilboard:</span>
-              <span id="clamp-span-corner" class="coord-badge">X: [115.0, 185.0] Y: [55.0, 125.0] mm</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 7: Design Analysis & Meshing Outlines -->
-        <div class="panel">
-          <h3 class="panel-title">🔍 Design Analysis & Meshing Outlines</h3>
-          <div class="control-group">
-            <button id="btn-run-analysis" class="btn btn-secondary" style="width: 100%; justify-content: center;">
-              <span class="icon">📐</span> Analyze Design Geometry
+      <!-- Right Zone: Studio Navigation Tabs + Apple Liquid Glass Theme Switcher -->
+      <div class="header-right-zone">
+        <!-- Studio Navigation Tabs (Apple Segmented Control - Sketch: Auto / Cam Studio) -->
+        <div class="studio-tab-bar">
+          <div class="apple-segmented-control" id="studio-segmented-control">
+            <div class="apple-glass-slider-pill" id="studio-glass-pill"></div>
+            <button class="studio-tab active" id="tab-btn-manual" data-tab="tab-manual" title="Manual parameter configuration and toolpath controls (CAM Studio)">
+              <span class="tab-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="15.5" y2="16.5"/><polyline points="9 18 15 18 18 15"/></svg></span>
+              <span class="tab-label">CAM Studio</span>
+            </button>
+            <button class="studio-tab" id="tab-btn-auto-optimizer" data-tab="tab-auto-optimizer" title="Automatic Machining Optimizer based on physics, material, machine & geometry (Auto Mode)">
+              <span class="tab-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+              <span class="tab-label">Auto Mode</span>
             </button>
           </div>
-
-          <!-- Outlines Visibility Toggles -->
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="chk-show-silhouette" checked> 2D Footprint Silhouette</label>
-          </div>
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="chk-show-feature-edges" checked> 3D Feature Edge Curves</label>
-          </div>
-
-          <div class="stats-grid" style="margin-top: 8px;">
-            <div class="stat-box">
-              <span class="stat-label">Footprint Area</span>
-              <span class="stat-val" id="analysis-footprint">- mm²</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Model Volume</span>
-              <span class="stat-val" id="analysis-volume">- cm³</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Min Round Dia</span>
-              <span class="stat-val" id="analysis-cyl-dia">- mm</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Mesh Features</span>
-              <span class="stat-val" id="analysis-feature-count">- edges</span>
-            </div>
-          </div>
-
-          <!-- Quick Stock Presets from Analysis -->
-          <div class="drawer-actions-col" style="margin-top: 8px;">
-            <button id="btn-apply-rec-box" class="btn btn-tool" style="font-size: 10px;">📦 Use Recommended Box Stock</button>
-            <button id="btn-apply-rec-cylinder" class="btn btn-tool" style="font-size: 10px;">⚪ Use Recommended Round Stock</button>
-            <button id="btn-apply-rec-plate" class="btn btn-tool" style="font-size: 10px;">📄 Use Recommended Plate Stock</button>
-          </div>
         </div>
 
-        <!-- Panel 7: Slicing Statistics -->
-        <div class="panel">
-          <h3 class="panel-title">📊 Slicing Statistics</h3>
-          <div class="stats-grid">
-            <div class="stat-box">
-              <span class="stat-label">Total Layers</span>
-              <span class="stat-val" id="stat-layers">-</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Cut Distance</span>
-              <span class="stat-val" id="stat-cut-dist">-</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Air Rapids</span>
-              <span class="stat-val" id="stat-rapid-dist">-</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-label">Est. Machining Time</span>
-              <span class="stat-val highlight" id="stat-est-time">-</span>
-            </div>
+        <!-- Apple Liquid Glass Theme Switcher (Dark / Light) -->
+        <div class="theme-switch-wrapper" title="Toggle Dark / Light Theme with Apple Liquid Glass Animation">
+          <div class="theme-segmented-switch" id="theme-segmented-switch">
+            <div class="theme-glass-slider-pill" id="theme-glass-pill"></div>
+            <button class="theme-option-btn active" id="btn-theme-dark" data-theme="dark" title="Dark Obsidian Theme">
+              <svg class="svg-icon theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              <span class="theme-label">Dark</span>
+            </button>
+            <button class="theme-option-btn" id="btn-theme-light" data-theme="light" title="Light Precision CAD Theme">
+              <svg class="svg-icon theme-icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              <span class="theme-label">Light</span>
+            </button>
           </div>
         </div>
-      </aside>
+      </div>
+    </header>
 
-      <!-- Left Sidebar: Auto-Machining Optimizer Studio Suite -->
-      <aside class="sidebar-left sidebar-optimizer" id="sidebar-auto-optimizer" style="display: none;">
-        <!-- Optimizer Hero Banner -->
-        <div class="panel auto-optimizer-hero">
-          <div class="opt-hero-head">
-            <div class="opt-badge-glow">⚡</div>
-            <div>
-              <h3 class="panel-title" style="margin: 0; padding: 0;">Auto-Machining Optimizer</h3>
-              <span class="auto-subtitle">Physics-Driven Multi-Objective Pareto Optimization</span>
-            </div>
-          </div>
-          <div class="opt-active-summary" id="opt-summary-banner">
-            <span class="opt-summary-icon">🎯</span>
-            <span id="opt-summary-text">Ready to optimize. Choose priorities and click Run Optimizer.</span>
-          </div>
-        </div>
+    <!-- Sub-Bar: Telemetry & Model Info (Sketch: Rest dash -> File name | Stock | Tool | Speed | Time) -->
+    <div class="sub-header-telemetry" id="sub-header-telemetry">
+      <div class="telemetry-pill-group">
+        <span class="telemetry-item" id="opt-status-model-pill"><span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></span> <b id="opt-status-model-name">Sample Pyramid</b></span>
+        <span class="telemetry-item"><span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> Stock: <b id="telemetry-stock-dim">70×70×30 mm</b></span>
+        <span class="telemetry-item"><span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 2v8m-3 0h6v6l-3 4-3-4v-6z"/><line x1="9" y1="6" x2="15" y2="6"/></svg></span> Tool: <b id="telemetry-tool-name">1/8" Flat Endmill</b></span>
+        <span class="telemetry-item"><span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="17" y2="7"/><circle cx="12" cy="12" r="2"/></svg></span> Feeds: <b id="telemetry-speed-val">10,000 RPM @ 1,200 mm/min</b></span>
+        <span class="telemetry-item"><span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg></span> Est. Time: <b id="opt-status-time" class="highlight-green">- min</b></span>
+      </div>
+      <div class="telemetry-right-status">
+        <span class="opt-status-pill"><svg class="svg-icon" style="color:#38bdf8;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Mode: <b id="opt-status-profile">Balanced</b></span>
+        <span class="opt-status-pill"><svg class="svg-icon" style="color:#f59e0b;" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Material: <b id="opt-status-material">Wood / MDF</b></span>
+      </div>
+    </div>
 
-        <!-- Section 1: Optimization Profiles -->
-        <div class="panel">
-          <h3 class="panel-title">🎯 1. Optimization Priority</h3>
-          <p class="panel-subtitle">Select what your machining job should prioritize:</p>
-          <div class="opt-profiles-grid">
-            <div class="opt-profile-card" data-profile="fastest">
-              <div class="opt-card-head">
-                <span class="opt-card-icon">🚀</span>
-                <span class="opt-card-name">Fastest Machining</span>
-                <span class="opt-card-warn-icon" title="Caution: High cutter wear and breakage risk">⚠️</span>
-              </div>
-              <p class="opt-card-desc">Max material removal rate (MRR), aggressive DOC & stepover to minimize cycle time.</p>
-              <div class="opt-card-tags-row">
-                <span class="opt-card-tag">High Speed</span>
-                <span class="opt-card-tag tag-warning">⚠️ High Wear / Breakage Risk</span>
-              </div>
-            </div>
-
-            <div class="opt-profile-card" data-profile="tool_life">
-              <div class="opt-card-head">
-                <span class="opt-card-icon">🛡️</span>
-                <span class="opt-card-name">Longest Tool Life</span>
-              </div>
-              <p class="opt-card-desc">Conservative chipload, low tool deflection, corner feed deceleration, zero thermal shock.</p>
-              <span class="opt-card-tag">Tool Protection</span>
-            </div>
-
-            <div class="opt-profile-card active" data-profile="balanced">
-              <div class="opt-card-head">
-                <span class="opt-card-icon">⚖️</span>
-                <span class="opt-card-name">Balanced</span>
-              </div>
-              <p class="opt-card-desc">Optimal trade-off between cycle time, tool preservation, surface quality, and spindle safety.</p>
-              <span class="opt-card-tag recommended">Recommended</span>
-            </div>
-
-            <div class="opt-profile-card" data-profile="surface_finish">
-              <div class="opt-card-head">
-                <span class="opt-card-icon">✨</span>
-                <span class="opt-card-name">Best Surface Finish</span>
-              </div>
-              <p class="opt-card-desc">Tight stepover, low scallop/cusp height (&lt;10µm), and dedicated spring finishing pass.</p>
-              <span class="opt-card-tag">Mirror Finish</span>
-            </div>
-
-            <div class="opt-profile-card" data-profile="lowest_energy">
-              <div class="opt-card-head">
-                <span class="opt-card-icon">🌿</span>
-                <span class="opt-card-name">Lowest Energy Use</span>
-              </div>
-              <p class="opt-card-desc">Peak torque efficiency per Watt, reduced idle spindle run time, and minimized air rapids.</p>
-              <span class="opt-card-tag">Eco & Low Power</span>
-            </div>
-          </div>
-
-          <!-- Fastest Mode Tool Breakage Warning Banner -->
-          <div class="opt-fastest-warning-banner" id="opt-fastest-warning" style="display: none;">
-            <div class="warn-banner-icon">⚠️</div>
-            <div class="warn-banner-body">
-              <b class="warn-banner-title">Caution: Maximum Tool Wear & Breakage Risk</b>
-              <p class="warn-banner-desc">Fastest Mode operates with aggressive chipload, cutting feedrate, and depth of cut. This significantly increases cutter wear, heat generation, and deflection, which can snap or break slender endmills (especially 1/8" cutters or in metals). Ensure rigid collet clamping, secure workpiece fixturing, and chip evacuation.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 2: Workpiece Material Library & Finish Level -->
-        <div class="panel">
-          <h3 class="panel-title">🪵 2. Material & Finish Requirements</h3>
-          <div class="control-group">
-            <label>Workpiece Material:</label>
-            <select id="opt-material-select">
-              <option value="wood_mdf" selected>🌲 Wood / MDF / Plywood (kc = 350 N/mm²)</option>
-              <option value="plastic_delrin">🧪 Engineering Plastic: Delrin / POM / Acrylic (kc = 450 N/mm²)</option>
-              <option value="aluminum_6061">🪙 Aluminum: 6061-T6 / 7075-T6 (kc = 850 N/mm²)</option>
-              <option value="steel_mild">🔩 Steel / Soft Carbon / Brass (kc = 1950 N/mm²)</option>
-            </select>
-          </div>
-          <div class="material-property-preview" id="opt-mat-preview">
-            <span class="mat-prop-item"><b>Density:</b> 0.75 g/cm³</span>
-            <span class="mat-prop-item"><b>Coolant:</b> Dry Dust Extr.</span>
-            <span class="mat-prop-item"><b>Chipload:</b> 0.04–0.12 mm/t</span>
-          </div>
-
-          <div class="control-group" style="margin-top: 10px;">
-            <label>Required Part Finish:</label>
-            <div class="opt-finish-pills">
-              <button class="finish-pill-btn" data-finish="roughing">⛏️ Roughing (0.5mm)</button>
-              <button class="finish-pill-btn active" data-finish="standard">📐 Standard (22µm)</button>
-              <button class="finish-pill-btn" data-finish="fine">💎 Fine Precision (6µm)</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 3: G-Code Optimization Engine -->
-        <div class="panel">
-          <div class="panel-title-with-badge">
-            <h3 class="panel-title">📜 3. G-Code Arc & Smoothing Engine</h3>
-            <span class="badge-accent">Solves 36k Micro-Moves</span>
-          </div>
-          <p class="panel-subtitle">Replaces excessive tiny linear moves with circular arc commands:</p>
-          <div class="checkbox-group-styled">
-            <label class="styled-checkbox-row">
-              <input type="checkbox" id="opt-chk-arc-fitting" checked>
-              <div class="checkbox-label-content">
-                <b>🔄 G2 / G3 Circular Arc Fitting</b>
-                <span>Fits bi-arcs to curved contours, shrinking G-code by up to 80%</span>
-              </div>
-            </label>
-            <label class="styled-checkbox-row">
-              <input type="checkbox" id="opt-chk-micro-filter" checked>
-              <div class="checkbox-label-content">
-                <b>🗜️ Micro-Movement Filter (&lt;0.01mm)</b>
-                <span>Eliminates controller buffer starvation and machine stutter</span>
-              </div>
-            </label>
-            <label class="styled-checkbox-row">
-              <input type="checkbox" id="opt-chk-collinear-merge" checked>
-              <div class="checkbox-label-content">
-                <b>📐 Collinear Segment Merging (RDP)</b>
-                <span>Fuses redundant collinear lines within geometric tolerance</span>
-              </div>
-            </label>
-            <label class="styled-checkbox-row">
-              <input type="checkbox" id="opt-chk-corner-decel" checked>
-              <div class="checkbox-label-content">
-                <b>⚡ Corner Deceleration & Force Limiting</b>
-                <span>Slows feed at 90° corners to prevent cutter deflection & breakage</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Section 4: Multi-Objective Comparative Matrix -->
-        <div class="panel">
-          <h3 class="panel-title">📊 4. Performance Matrix (vs Baseline)</h3>
-          <p class="panel-subtitle">Estimated improvements against default unoptimized parameters:</p>
-          <div class="comparison-matrix-grid">
-            <div class="comp-metric-card">
-              <span class="comp-icon">⏱️</span>
-              <div class="comp-label">Cycle Time</div>
-              <div class="comp-values">
-                <span class="comp-base" id="comp-base-time">54.4 min</span>
-                <span class="comp-arrow">→</span>
-                <span class="comp-opt highlight-green" id="comp-opt-time">28.2 min</span>
-              </div>
-              <div class="comp-delta delta-pos" id="delta-time">-48.2% Faster</div>
-            </div>
-
-            <div class="comp-metric-card">
-              <span class="comp-icon">🛡️</span>
-              <div class="comp-label">Tool Life Index</div>
-              <div class="comp-values">
-                <span class="comp-base" id="comp-base-tool">60%</span>
-                <span class="comp-arrow">→</span>
-                <span class="comp-opt highlight-blue" id="comp-opt-tool">88%</span>
-              </div>
-              <div class="comp-delta delta-pos" id="delta-tool">+28.0% Longevity</div>
-            </div>
-
-            <div class="comp-metric-card">
-              <span class="comp-icon">✨</span>
-              <div class="comp-label">Scallop / Cusp</div>
-              <div class="comp-values">
-                <span class="comp-base" id="comp-base-scallop">42.5 µm</span>
-                <span class="comp-arrow">→</span>
-                <span class="comp-opt highlight-purple" id="comp-opt-scallop">14.2 µm</span>
-              </div>
-              <div class="comp-delta delta-pos" id="delta-scallop">-66.6% Smoother</div>
-            </div>
-
-            <div class="comp-metric-card">
-              <span class="comp-icon">⚡</span>
-              <div class="comp-label">Energy Consumed</div>
-              <div class="comp-values">
-                <span class="comp-base" id="comp-base-energy">0.38 kWh</span>
-                <span class="comp-arrow">→</span>
-                <span class="comp-opt highlight-green" id="comp-opt-energy">0.21 kWh</span>
-              </div>
-              <div class="comp-delta delta-pos" id="delta-energy">-44.7% Power</div>
-            </div>
-
-            <div class="comp-metric-card comp-card-wide">
-              <span class="comp-icon">📜</span>
-              <div class="comp-label">G-Code Size & Micro-Movements</div>
-              <div class="comp-values">
-                <span class="comp-base" id="comp-base-lines">48,349 lines (36k micro)</span>
-                <span class="comp-arrow">→</span>
-                <span class="comp-opt highlight-cyan" id="comp-opt-lines">9,200 lines (0 micro)</span>
-              </div>
-              <div class="comp-delta delta-pos" id="delta-lines">-81.0% G-Code Compression</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 5: The 4 Optimization Rationales -->
-        <div class="panel">
-          <h3 class="panel-title">💡 5. Engineering Insights & Rationales</h3>
-          <div class="opt-rationales-accordion">
-            <div class="rationale-block">
-              <div class="rationale-header">
-                <span class="rat-icon">⏱️</span>
-                <b>A. Machining-Time Optimizer</b>
-              </div>
-              <p class="rat-text" id="rat-time-text">Calculating cycle time accounting for machine acceleration kinematics and air-cutting reduction...</p>
-            </div>
-
-            <div class="rationale-block">
-              <div class="rationale-header">
-                <span class="rat-icon">🛡️</span>
-                <b>B. Tool-Life Optimizer</b>
-              </div>
-              <p class="rat-text" id="rat-tool-text">Calculating chipload, cutting force, and deflection limits for cutter preservation...</p>
-            </div>
-
-            <div class="rationale-block">
-              <div class="rationale-header">
-                <span class="rat-icon">✨</span>
-                <b>C. Surface-Quality Optimizer</b>
-              </div>
-              <p class="rat-text" id="rat-surface-text">Calculating scallop height and curvature-adaptive stepover for required finish...</p>
-            </div>
-
-            <div class="rationale-block">
-              <div class="rationale-header">
-                <span class="rat-icon">💰</span>
-                <b>D. Productivity & Resource Optimizer</b>
-              </div>
-              <p class="rat-text" id="rat-prod-text">Estimating total cycle cost, power efficiency, and cutter consumption savings...</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 6: Action Footer -->
-        <div class="optimizer-actions-sticky">
-          <button id="btn-opt-recalc" class="btn btn-secondary" title="Recalculate multi-objective metrics for selected settings">
-            <span class="icon">🔄</span> Recalculate
-          </button>
-          <button id="btn-opt-apply" class="btn btn-primary btn-opt-main" title="Apply optimization, slice model, fit arcs, and update 3D toolpaths">
-            <span class="icon">🚀</span> Optimize & Apply Toolpath
-          </button>
-        </div>
-      </aside>
-
-      <!-- Center 3D Viewport with Creality-style Left Toolbar -->
+    <!-- Main Workspace (Center Viewport on Left, Inspector on Right) -->
+    <div class="workspace workspace-apple">
+      <!-- Center 3D Viewport with Floating Apple Glass HUDs (Panel 3 from Sketch) -->
       <main class="viewport-container" id="viewport-3d">
+        <!-- Floating Top HUD: Views Control & Coordinates (Sketch: Views Control + Coordinates) -->
+        <div class="viewport-top-hud">
+          <div class="views-control-capsule">
+            <span class="hud-label">Camera</span>
+            <button id="btn-view-top" class="btn-view-pill">Top</button>
+            <button id="btn-view-front" class="btn-view-pill">Front</button>
+            <button id="btn-view-iso" class="btn-view-pill active">Isometric</button>
+            <button id="btn-reset-cam" class="btn-view-pill">Reset</button>
+          </div>
+          <div class="coordinates-capsule" id="stock-pos-capsule">
+            <span class="coord-dot"></span>
+            <span class="coord-label">Origin:</span>
+            <input type="text" id="stock-pos" value="X: 0.0, Y: 0.0" readonly class="coord-input-transparent">
+          </div>
+        </div>
+
         <!-- Creality Slicer Left Vertical Tool Palette -->
         <div class="creality-toolbar">
           <button class="tool-btn active" id="tool-select-btn" title="Orbit / View (Esc)">
-            <span class="tool-icon">🖱️</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg></span>
             <span class="tool-name">View</span>
           </button>
           <button class="tool-btn" id="tool-translate-btn" title="Move / Position (W)">
-            <span class="tool-icon">✥</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg></span>
             <span class="tool-name">Move</span>
           </button>
           <button class="tool-btn" id="tool-rotate-btn" title="Rotate / Orientation (E)">
-            <span class="tool-icon">🔄</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg></span>
             <span class="tool-name">Rotate</span>
           </button>
           <button class="tool-btn" id="tool-scale-btn" title="Scale / Resize (R)">
-            <span class="tool-icon">📐</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span>
             <span class="tool-name">Scale</span>
           </button>
           <button class="tool-btn" id="tool-mirror-btn" title="Mirror / Flip (M)">
-            <span class="tool-icon">🪞</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><polygon points="8 6 3 12 8 18 8 6"/><polygon points="16 6 21 12 16 18 16 6"/></svg></span>
             <span class="tool-name">Mirror</span>
           </button>
           <div class="tool-divider"></div>
           <button class="tool-btn" id="tool-layflat-btn" title="Lay on Flat Face (Drop to Bed)">
-            <span class="tool-icon">🛏️</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 19h18"/><path d="M7 15l5 4 5-4"/><line x1="12" y1="5" x2="12" y2="19"/></svg></span>
             <span class="tool-name">Lay Flat</span>
           </button>
           <button class="tool-btn" id="tool-center-btn" title="Center Model on Bed Origin (0, 0)">
-            <span class="tool-icon">🎯</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg></span>
             <span class="tool-name">Center</span>
           </button>
           <button class="tool-btn" id="tool-reset-btn" title="Reset All Transformations">
-            <span class="tool-icon">↺</span>
+            <span class="tool-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg></span>
             <span class="tool-name">Reset</span>
           </button>
         </div>
@@ -820,9 +265,9 @@
           <!-- Mirror Sub-Panel -->
           <div class="drawer-content" id="drawer-mirror-content" style="display: none;">
             <div class="drawer-actions-col">
-              <button class="btn btn-tool" id="btn-mirror-x">🪞 Mirror on X Axis</button>
-              <button class="btn btn-tool" id="btn-mirror-y">🪞 Mirror on Y Axis</button>
-              <button class="btn btn-tool" id="btn-mirror-z">🪞 Mirror on Z Axis (Flip upside-down)</button>
+              <button class="btn btn-tool" id="btn-mirror-x"><svg class="svg-icon" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><polygon points="8 6 3 12 8 18 8 6"/><polygon points="16 6 21 12 16 18 16 6"/></svg> Mirror on X Axis</button>
+              <button class="btn btn-tool" id="btn-mirror-y"><svg class="svg-icon" viewBox="0 0 24 24"><line x1="2" y1="12" x2="22" y2="12"/><polygon points="6 8 12 3 18 8 6 8"/><polygon points="6 16 12 21 18 16 6 16"/></svg> Mirror on Y Axis</button>
+              <button class="btn btn-tool" id="btn-mirror-z"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="7 10 12 15 17 10"/><polyline points="7 14 12 9 17 14"/></svg> Mirror on Z Axis (Flip upside-down)</button>
             </div>
           </div>
         </div>
@@ -835,36 +280,676 @@
           <div><span class="legend-box rapid-legend"></span> Rapid Travel (G0)</div>
         </div>
 
-        <!-- Floating HUD Viewport Navigation Dock (Modern CAD Floating Dock) -->
-        <div class="viewport-controls">
-          <button id="btn-view-top" class="btn-tool" title="Top-down orthographic view">📐 Top</button>
-          <button id="btn-view-iso" class="btn-tool" title="Isometric 3D perspective view">🧊 Isometric</button>
-          <button id="btn-view-front" class="btn-tool" title="Front elevation view">⏹ Front</button>
-          <button id="btn-reset-cam" class="btn-tool" title="Reset 3D camera to default">⟲ Reset Cam</button>
-          <div class="sim-speed-wrapper">
-            <span class="sim-speed-label">Speed:</span>
-            <select id="sim-speed-select" class="select-sim-speed" title="Simulation cutting speed multiplier">
-              <option value="1">1x</option>
-              <option value="5" selected>5x</option>
-              <option value="20">20x</option>
-              <option value="50">50x</option>
-            </select>
+        <!-- Floating Left After-Slice Scrubber & Simulation Dock (Sketch: After Slice -> Play + Scrubber) -->
+        <div class="viewport-scrubber-dock" id="viewport-scrubber-dock">
+          <div class="scrubber-header">
+            <span class="scrubber-badge-tag">After Slice</span>
+            <span class="scrubber-layer-num" id="current-layer-label">All Layers</span>
+          </div>
+          <div class="scrubber-slider-wrapper">
+            <input type="range" id="layer-slider" min="0" max="0" value="0" orient="vertical">
+          </div>
+          <div class="scrubber-playback-card">
+            <button id="btn-play-sim" class="btn-apple-play" title="Simulate tool cutting movement (Play/Pause)">
+              <span class="play-icon" id="sim-play-icon">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: #ffffff; stroke: none; margin-left: 2px;"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+              </span>
+            </button>
+            <div class="scrubber-z-display">
+              <span class="z-label">Depth</span>
+              <span id="layer-z-val" class="z-val">Z: 0.00mm</span>
+            </div>
+            <div class="sim-speed-wrapper">
+              <span class="sim-speed-label">Speed</span>
+              <select id="sim-speed-select" class="select-sim-speed" title="Simulation cutting speed multiplier">
+                <option value="1">1x</option>
+                <option value="5" selected>5x</option>
+                <option value="20">20x</option>
+                <option value="50">50x</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Floating Bottom Dynamic Island: Slice & Export Dock (Sketch: Slice -> View/Download Gcode) -->
+        <div class="viewport-action-island" id="viewport-action-island">
+          <button id="btn-slice" class="btn-apple-slice" title="Calculate subtractive layered clearing toolpaths">
+            <span class="slice-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 14l8-8 8 8-8 8-8-8z"/><line x1="2" y1="12" x2="22" y2="12"/></svg></span>
+            <span class="slice-label">Slice Stock</span>
+          </button>
+          <div class="action-island-divider"></div>
+          <div class="gcode-island-actions">
+            <button id="btn-view-gcode" class="btn btn-apple-glass" disabled title="Inspect generated G-code text">
+              <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span> View G-Code
+            </button>
+            <button id="btn-export-gcode" class="btn btn-apple-success" disabled title="Download machine G-code file">
+              <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span> Download G-Code
+            </button>
+          </div>
+          <div class="action-island-divider"></div>
+          <div class="island-status-badge" id="island-warp-badge">
+            <span class="status-indicator-dot" id="status-pulse-dot"></span>
+            <span id="surface-warp-val">Spoilboard Leveled</span>
           </div>
         </div>
       </main>
 
-      <!-- Right Vertical Slicer Slider (Cura/Prusa Style) -->
-      <aside class="sidebar-right">
-        <div class="slider-header">
-          <span class="slider-title">Pass (Layer)</span>
-          <span class="slider-badge" id="current-layer-label">All</span>
+      <!-- Creality / Apple Splitter: Drag to Resize, Click Arrow to Collapse/Expand -->
+      <div class="sidebar-resizer" id="sidebar-resizer" title="Drag to resize inspector width | Double-click to reset (340px)">
+        <button class="resizer-toggle-btn" id="btn-toggle-sidebar" title="Collapse / Expand Inspector (Ctrl+B)">
+          <span class="resizer-arrow" id="resizer-arrow">▶</span>
+        </button>
+      </div>
+
+      <!-- Right Inspector: Manual Settings & Auto Optimizer (Panel 1 from Sketch) -->
+      <aside class="sidebar-left sidebar-right-inspector" id="sidebar-manual-cam">
+        <!-- Panel 0: CNC Milling Machine Profile (3D Printer Slicer Style) -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="4" y="8" width="4" height="12" rx="1"/><rect x="16" y="8" width="4" height="12" rx="1"/><line x1="12" y1="8" x2="12" y2="15"/><circle cx="12" cy="16" r="1.5"/></svg> CNC Milling Machine</h3>
+          <div class="control-group">
+            <label>Machine Model:</label>
+            <select id="machine-select-sidebar">
+            <optgroup label="Desktop & Benchtop CNC">
+              <option value="genmitsu_3018" selected>Genmitsu 3018-PROVer (300 × 180 mm)</option>
+              <option value="genmitsu_4030">Genmitsu PROVerXL 4030 (400 × 300 mm)</option>
+              <option value="shapeoko_4">Shapeoko 4 Standard (444 × 444 mm)</option>
+              <option value="nomad_3">Carbide Nomad 3 (200 × 200 mm)</option>
+              <option value="bantam_desktop">Bantam Tools Desktop CNC (178 × 127 mm)</option>
+              <option value="x_carve_1000">Inventables X-Carve 1000mm (750 × 750 mm)</option>
+              <option value="carvera_atc">Makera Carvera ATC (360 × 240 mm)</option>
+            </optgroup>
+            <optgroup label="Industrial Machining Centers">
+              <option value="tormach_1100m">Tormach 1100M (457 × 279 mm • BT30)</option>
+              <option value="datron_neo">Datron neo (520 × 420 mm • 40k RPM)</option>
+              <option value="brother_speedio">Brother SPEEDIO S500X2 (500 × 400 mm)</option>
+              <option value="haas_vf2">Haas VF-2 VMC (762 × 406 mm • 40-Taper)</option>
+              <option value="dmg_mori_cmx600v">DMG MORI CMX 600 V (600 × 560 mm)</option>
+              <option value="avid_pro4848">Avid CNC PRO4848 (1250 × 1250 mm • 4×4 ft)</option>
+            </optgroup>
+            <optgroup label="Custom Spoilboard">
+              <option value="custom_mill">Custom CNC Milling Machine...</option>
+            </optgroup>
+            </select>
+          </div>
+
+          <div class="stats-grid" style="margin-bottom: 8px;">
+            <div class="stat-box">
+              <span class="stat-label">Bed Area</span>
+              <span class="stat-val" id="machine-stat-bed">300 × 180 mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Max Z Travel</span>
+              <span class="stat-val" id="machine-stat-z">45 mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Bed Layout</span>
+              <span class="stat-val" id="machine-stat-layout" style="font-size: 11px;">Aluminum T-Slot</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Max Spindle</span>
+              <span class="stat-val" id="machine-stat-spindle">10,000 RPM</span>
+            </div>
+          </div>
+
+          <!-- Custom Machine Dimensions (displayed only when custom_mill is selected) -->
+          <div id="custom-machine-controls" style="display: none; background: #18181c; padding: 8px; border-radius: 4px; margin-bottom: 8px; border: 1px dashed #3f3f46;">
+            <div class="control-row">
+              <div>
+                <label>Bed Width X (mm)</label>
+                <input type="number" id="custom-bed-w" value="400" min="50" max="2000">
+              </div>
+              <div>
+                <label>Bed Length Y (mm)</label>
+                <input type="number" id="custom-bed-l" value="400" min="50" max="2000">
+              </div>
+            </div>
+            <div class="control-row">
+              <div>
+                <label>Max Z Travel (mm)</label>
+                <input type="number" id="custom-bed-z" value="100" min="20" max="500">
+              </div>
+              <div>
+                <label>Max RPM</label>
+                <input type="number" id="custom-bed-rpm" value="16000" min="1000" max="60000" step="1000">
+              </div>
+            </div>
+            <button id="btn-apply-custom-bed" class="btn btn-tool" style="width: 100%; justify-content: center;">Apply Custom Bed Dimensions</button>
+          </div>
+
+          <!-- Visual Bed Toggles -->
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-travel-cage" checked> Machine Travel Envelope Cage</label>
+          </div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-bed-features" checked> T-Tracks / Clamping Dogholes</label>
+          </div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-bed-numbers" checked> Bed Positioning Rulers & Numbers</label>
+          </div>
         </div>
-        <div class="slider-track-container">
-          <input type="range" id="layer-slider" min="0" max="0" value="0" orient="vertical">
+
+        <!-- Panel 1: Inserted Model Info -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Inserted 3D Model</h3>
+          <div class="control-group">
+            <div id="model-name-badge" class="model-badge">Sample Pyramid (3D)</div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Model X (mm)</label>
+              <input type="text" id="model-dim-x" value="60.0" readonly>
+            </div>
+            <div>
+              <label>Model Y (mm)</label>
+              <input type="text" id="model-dim-y" value="60.0" readonly>
+            </div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Model Z (mm)</label>
+              <input type="text" id="model-dim-z" value="30.0" readonly>
+            </div>
+            <div>
+              <label>Triangles</label>
+              <input type="text" id="model-poly-count" value="36" readonly>
+            </div>
+          </div>
         </div>
-        <div class="slider-footer">
-          <button id="btn-play-sim" class="btn-sim" title="Simulate tool cutting movement">▶</button>
-          <span id="layer-z-val" class="layer-z">Z: 0.00mm</span>
+
+        <!-- Panel 2: Tool & Cutter Specs -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 2v8m-3 0h6v6l-3 4-3-4v-6z"/><line x1="9" y1="6" x2="15" y2="6"/></svg> Tool Library</h3>
+          <div class="control-group">
+            <label>Endmill Bit:</label>
+            <select id="tool-select">
+              <option value="flat_1_8" selected>1/8" (3.175mm) Flat Endmill</option>
+              <option value="flat_1_4">1/4" (6.35mm) Flat Endmill</option>
+              <option value="flat_6mm">6.0mm Roughing Endmill</option>
+              <option value="v_bit_60">60° V-Carve Bit</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Panel 3: Infill / Pocket Clearing Pattern -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 12h18M12 3v18"/><circle cx="12" cy="12" r="7"/></svg> Infill & Pocket Clearing</h3>
+          <div class="control-group">
+            <label>Clearing Pattern:</label>
+            <select id="clearing-pattern">
+              <option value="concentric" selected>Concentric (Spiral Offsets)</option>
+              <option value="zigzag">Zig-Zag (Parallel Raster)</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Stepdown / Layer (mm)</label>
+              <input type="number" id="cut-stepdown" value="1.0" step="0.2" min="0.1" max="10">
+            </div>
+            <div>
+              <label>Stepover (%)</label>
+              <input type="number" id="cut-stepover" value="45" min="10" max="90">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 4: Walls, Finish & Holding Tabs -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Walls, Finish & Holding Tabs</h3>
+          <div class="control-row">
+            <div>
+              <label>Finishing Allowance (mm)</label>
+              <input type="number" id="stock-to-leave" value="0.0" step="0.1" min="0" max="2" title="Stock to leave for final cleanup pass">
+            </div>
+            <div>
+              <label>Holding Tabs</label>
+              <select id="tabs-count">
+                <option value="0" selected>None</option>
+                <option value="2">2 Tabs</option>
+                <option value="4">4 Tabs</option>
+                <option value="6">6 Tabs</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-row" id="tabs-specs-row">
+            <div>
+              <label>Tab Width (mm)</label>
+              <input type="number" id="tab-width" value="5.0" min="1" max="20">
+            </div>
+            <div>
+              <label>Tab Height (mm)</label>
+              <input type="number" id="tab-height" value="2.0" min="0.5" max="10">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 5: Speeds & Feeds -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Speeds & Feeds</h3>
+          <div class="control-row">
+            <div>
+              <label>Cutting Feed (mm/min)</label>
+              <input type="number" id="feed-xy" value="1200" step="100">
+            </div>
+            <div>
+              <label>Plunge Rate (mm/min)</label>
+              <input type="number" id="feed-z" value="300" step="50">
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Spindle Speed (RPM):</label>
+            <input type="number" id="spindle-rpm" value="16000" step="1000">
+          </div>
+        </div>
+
+        <!-- Panel 6: Raw Stock Material & Geometry -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Raw Stock Material & Geometry</h3>
+          <div class="control-group">
+            <label>Material Shape:</label>
+            <select id="stock-shape">
+              <option value="box" selected>Rectangular Block / Cube</option>
+              <option value="plate">Metal Plate (Rectangular Sheet)</option>
+              <option value="cylinder">Cylinder / Round Bar</option>
+              <option value="round_plate">Cylindrical Metal Plate / Disc</option>
+              <option value="conforming">Conforming Outline (Follows Silhouette)</option>
+            </select>
+          </div>
+
+          <!-- Box & Plate Dimensions -->
+          <div id="stock-box-dims">
+            <div class="control-row">
+              <div>
+                <label>Width X (mm)</label>
+                <input type="number" id="stock-w" value="70" min="10" max="600">
+              </div>
+              <div>
+                <label>Length Y (mm)</label>
+                <input type="number" id="stock-l" value="70" min="10" max="600">
+              </div>
+            </div>
+          </div>
+
+          <!-- Cylinder & Round Plate Dimensions -->
+          <div id="stock-cylinder-dims" style="display: none;">
+            <div class="control-group">
+              <label>Diameter D (mm):</label>
+              <input type="number" id="stock-d" value="90" min="10" max="600">
+            </div>
+          </div>
+
+          <!-- Conforming Outline Clearance -->
+          <div id="stock-conforming-dims" style="display: none;">
+            <div class="control-group">
+              <label>XY Clearance Margin (mm):</label>
+              <input type="number" id="stock-conforming-margin" value="5.0" min="1.0" max="50.0" step="0.5">
+            </div>
+          </div>
+
+          <!-- Common Thickness & Position -->
+          <div class="control-row">
+            <div>
+              <label>Thickness Z (mm)</label>
+              <input type="number" id="stock-t" value="32" min="1" max="200">
+            </div>
+            <div>
+              <label>Stock Center</label>
+              <input type="text" id="stock-pos" value="Auto-Linked" readonly>
+            </div>
+          </div>
+
+          <!-- Stock Following Design / Auto Alignment -->
+          <div class="checkbox-row" style="margin-top: 6px;">
+            <label><input type="checkbox" id="stock-lock-to-model" checked> Lock Stock to Model (Follow Design)</label>
+          </div>
+
+          <div class="drawer-actions" style="margin-top: 8px;">
+            <button id="btn-fit-stock-to-design" class="btn btn-tool" title="Resize stock to fit model with margins"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg> Auto-Fit Stock</button>
+            <button id="btn-center-stock-model" class="btn btn-tool" title="Align stock center directly to model"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg> Center Stock</button>
+          </div>
+
+          <div class="control-group" style="margin-top: 8px;">
+            <label>LiDAR Surface Flatness:</label>
+            <div class="metric-val" id="surface-warp-val">0.08 mm (Auto-Leveled)</div>
+          </div>
+
+          <!-- Real Machine Mounting & Clamping Coordinates -->
+          <div class="mounting-guide-card" id="stock-clamping-card">
+            <div class="mounting-guide-title"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"/></svg> Machine Clamping Coordinates</div>
+            <div class="mounting-guide-row">
+              <span class="guide-label">Work Origin (G54):</span>
+              <span id="clamp-span-center" class="coord-badge">X: [-35.0, +35.0] Y: [-35.0, +35.0] mm</span>
+            </div>
+            <div class="mounting-guide-row">
+              <span class="guide-label">Physical Spoilboard:</span>
+              <span id="clamp-span-corner" class="coord-badge">X: [115.0, 185.0] Y: [55.0, 125.0] mm</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 7: Design Analysis & Meshing Outlines -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Design Analysis & Meshing Outlines</h3>
+          <div class="control-group">
+            <button id="btn-run-analysis" class="btn btn-secondary" style="width: 100%; justify-content: center;">
+              <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></span> Analyze Design Geometry
+            </button>
+          </div>
+
+          <!-- Outlines Visibility Toggles -->
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-silhouette" checked> 2D Footprint Silhouette</label>
+          </div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="chk-show-feature-edges" checked> 3D Feature Edge Curves</label>
+          </div>
+
+          <div class="stats-grid" style="margin-top: 8px;">
+            <div class="stat-box">
+              <span class="stat-label">Footprint Area</span>
+              <span class="stat-val" id="analysis-footprint">- mm²</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Model Volume</span>
+              <span class="stat-val" id="analysis-volume">- cm³</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Min Round Dia</span>
+              <span class="stat-val" id="analysis-cyl-dia">- mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Mesh Features</span>
+              <span class="stat-val" id="analysis-feature-count">- edges</span>
+            </div>
+          </div>
+
+          <!-- Quick Stock Presets from Analysis -->
+          <div class="drawer-actions-col" style="margin-top: 8px;">
+            <button id="btn-apply-rec-box" class="btn btn-tool" style="font-size: 10px;"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Recommended Box Stock</button>
+            <button id="btn-apply-rec-cylinder" class="btn btn-tool" style="font-size: 10px;"><svg class="svg-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/></svg> Recommended Round Stock</button>
+            <button id="btn-apply-rec-plate" class="btn btn-tool" style="font-size: 10px;"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="1"/></svg> Recommended Plate Stock</button>
+          </div>
+        </div>
+
+        <!-- Panel 7: Slicing Statistics -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Slicing Statistics</h3>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <span class="stat-label">Total Layers</span>
+              <span class="stat-val" id="stat-layers">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Cut Distance</span>
+              <span class="stat-val" id="stat-cut-dist">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Air Rapids</span>
+              <span class="stat-val" id="stat-rapid-dist">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Est. Machining Time</span>
+              <span class="stat-val highlight" id="stat-est-time">-</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <aside class="sidebar-left sidebar-right-inspector sidebar-optimizer" id="sidebar-auto-optimizer" style="display: none;">
+        <!-- Optimizer Hero Banner -->
+        <div class="panel auto-optimizer-hero">
+          <div class="opt-hero-head">
+            <div class="opt-badge-glow"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+            <div>
+              <h3 class="panel-title" style="margin: 0; padding: 0;">Auto-Machining Optimizer</h3>
+              <span class="auto-subtitle">Physics-Driven Multi-Objective Machining Optimization</span>
+            </div>
+          </div>
+          <div class="opt-active-summary" id="opt-summary-banner">
+            <span class="opt-summary-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></span>
+            <span id="opt-summary-text">Ready to optimize. Choose priorities and click Run Optimizer.</span>
+          </div>
+        </div>
+
+        <!-- Section 1: Optimization Profiles -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg> 1. Optimization Priority</h3>
+          <p class="panel-subtitle">Select what your machining job should prioritize:</p>
+          <div class="opt-profiles-grid">
+            <div class="opt-profile-card" data-profile="fastest">
+              <div class="opt-card-head">
+                <span class="opt-card-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg></span>
+                <span class="opt-card-name">Fastest Machining</span>
+                <span class="opt-card-warn-icon" title="Caution: High cutter wear and breakage risk"><svg class="svg-icon warn-svg" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+              </div>
+              <p class="opt-card-desc">Max material removal rate (MRR), aggressive DOC & stepover to minimize cycle time.</p>
+              <div class="opt-card-tags-row">
+                <span class="opt-card-tag">High Speed</span>
+                <span class="opt-card-tag tag-warning"><svg class="svg-icon" style="width:11px;height:11px;stroke:#ef4444;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> High Wear / Breakage Risk</span>
+              </div>
+            </div>
+
+            <div class="opt-profile-card" data-profile="tool_life">
+              <div class="opt-card-head">
+                <span class="opt-card-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+                <span class="opt-card-name">Longest Tool Life</span>
+              </div>
+              <p class="opt-card-desc">Conservative chipload, low tool deflection, corner feed deceleration, zero thermal shock.</p>
+              <span class="opt-card-tag">Tool Protection</span>
+            </div>
+
+            <div class="opt-profile-card active" data-profile="balanced">
+              <div class="opt-card-head">
+                <span class="opt-card-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M3 7l9-4 9 4"/><polygon points="3 14 7 7 3 7 3 14"/><polygon points="17 7 21 7 21 14 17 7"/></svg></span>
+                <span class="opt-card-name">Balanced</span>
+              </div>
+              <p class="opt-card-desc">Optimal trade-off between cycle time, tool preservation, surface quality, and spindle safety.</p>
+              <span class="opt-card-tag recommended">Recommended</span>
+            </div>
+
+            <div class="opt-profile-card" data-profile="surface_finish">
+              <div class="opt-card-head">
+                <span class="opt-card-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="6 3 18 3 22 9 12 22 2 9 6 3"/></svg></span>
+                <span class="opt-card-name">Best Surface Finish</span>
+              </div>
+              <p class="opt-card-desc">Tight stepover, low scallop/cusp height (&lt;10µm), and dedicated spring finishing pass.</p>
+              <span class="opt-card-tag">Mirror Finish</span>
+            </div>
+
+            <div class="opt-profile-card" data-profile="lowest_energy">
+              <div class="opt-card-head">
+                <span class="opt-card-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg></span>
+                <span class="opt-card-name">Lowest Energy Use</span>
+              </div>
+              <p class="opt-card-desc">Peak torque efficiency per Watt, reduced idle spindle run time, and minimized air rapids.</p>
+              <span class="opt-card-tag">Eco & Low Power</span>
+            </div>
+          </div>
+
+          <!-- Fastest Mode Tool Breakage Warning Banner -->
+          <div class="opt-fastest-warning-banner" id="opt-fastest-warning" style="display: none;">
+            <div class="warn-banner-icon"><svg class="svg-icon warn-svg" style="width:24px;height:24px;stroke:#ef4444;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+            <div class="warn-banner-body">
+              <b class="warn-banner-title">Caution: Maximum Tool Wear & Breakage Risk</b>
+              <p class="warn-banner-desc">Fastest Mode operates with aggressive chipload, cutting feedrate, and depth of cut. This significantly increases cutter wear, heat generation, and deflection, which can snap or break slender endmills (especially 1/8" cutters or in metals). Ensure rigid collet clamping, secure workpiece fixturing, and chip evacuation.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Workpiece Material Library & Finish Level -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg> 2. Material & Finish Requirements</h3>
+          <div class="control-group">
+            <label>Workpiece Material:</label>
+            <select id="opt-material-select">
+              <option value="wood_mdf" selected>Wood / MDF / Plywood (kc = 350 N/mm²)</option>
+              <option value="plastic_delrin">Delrin / Acetal Engineering Plastic (kc = 450 N/mm²)</option>
+              <option value="aluminum_6061">Aluminum: 6061-T6 / 7075-T6 (kc = 850 N/mm²)</option>
+              <option value="steel_mild">Mild Steel / Brass / Soft Carbon (kc = 1950 N/mm²)</option>
+            </select>
+          </div>
+          <div class="material-property-preview" id="opt-mat-preview">
+            <span class="mat-prop-item"><b>Density:</b> 0.75 g/cm³</span>
+            <span class="mat-prop-item"><b>Coolant:</b> Dry Dust Extr.</span>
+            <span class="mat-prop-item"><b>Chipload:</b> 0.04–0.12 mm/t</span>
+          </div>
+
+          <div class="control-group" style="margin-top: 10px;">
+            <label>Required Part Finish:</label>
+            <div class="opt-finish-pills">
+              <button class="finish-pill-btn" data-finish="roughing"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 12h18"/><polyline points="7 8 3 12 7 16"/></svg> Roughing (0.5mm)</button>
+              <button class="finish-pill-btn active" data-finish="standard"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg> Standard (22µm)</button>
+              <button class="finish-pill-btn" data-finish="fine"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="6 3 18 3 22 9 12 22 2 9 6 3"/></svg> Fine Precision (6µm)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: G-Code Optimization Engine -->
+        <div class="panel">
+          <div class="panel-title-with-badge">
+            <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> 3. G-Code Arc & Smoothing Engine</h3>
+            <span class="badge-accent">Solves 36k Micro-Moves</span>
+          </div>
+          <p class="panel-subtitle">Replaces excessive tiny linear moves with circular arc commands:</p>
+          <div class="checkbox-group-styled">
+            <label class="styled-checkbox-row">
+              <input type="checkbox" id="opt-chk-arc-fitting" checked>
+              <div class="checkbox-label-content">
+                <b><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> G2 / G3 Circular Arc Fitting</b>
+                <span>Fits bi-arcs to curved contours, shrinking G-code by up to 80%</span>
+              </div>
+            </label>
+            <label class="styled-checkbox-row">
+              <input type="checkbox" id="opt-chk-micro-filter" checked>
+              <div class="checkbox-label-content">
+                <b><svg class="svg-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg> Micro-Movement Filter (&lt;0.01mm)</b>
+                <span>Eliminates controller buffer starvation and machine stutter</span>
+              </div>
+            </label>
+            <label class="styled-checkbox-row">
+              <input type="checkbox" id="opt-chk-collinear-merge" checked>
+              <div class="checkbox-label-content">
+                <b><svg class="svg-icon" viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3"/><polyline points="3 7 3 21 17 21"/></svg> Collinear Segment Merging (RDP)</b>
+                <span>Fuses redundant collinear lines within geometric tolerance</span>
+              </div>
+            </label>
+            <label class="styled-checkbox-row">
+              <input type="checkbox" id="opt-chk-corner-decel" checked>
+              <div class="checkbox-label-content">
+                <b><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Corner Deceleration & Force Limiting</b>
+                <span>Slows feed at 90° corners to prevent cutter deflection & breakage</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Section 4: Multi-Objective Comparative Matrix -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> 4. Performance Matrix (vs Baseline)</h3>
+          <p class="panel-subtitle">Estimated improvements against default unoptimized parameters:</p>
+          <div class="comparison-matrix-grid">
+            <div class="comp-metric-card">
+              <span class="comp-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg></span>
+              <div class="comp-label">Cycle Time</div>
+              <div class="comp-values">
+                <span class="comp-base" id="comp-base-time">54.4 min</span>
+                <span class="comp-arrow">→</span>
+                <span class="comp-opt highlight-green" id="comp-opt-time">28.2 min</span>
+              </div>
+              <div class="comp-delta delta-pos" id="delta-time">-48.2% Faster</div>
+            </div>
+
+            <div class="comp-metric-card">
+              <span class="comp-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+              <div class="comp-label">Tool Life Index</div>
+              <div class="comp-values">
+                <span class="comp-base" id="comp-base-tool">60%</span>
+                <span class="comp-arrow">→</span>
+                <span class="comp-opt highlight-blue" id="comp-opt-tool">88%</span>
+              </div>
+              <div class="comp-delta delta-pos" id="delta-tool">+28.0% Longevity</div>
+            </div>
+
+            <div class="comp-metric-card">
+              <span class="comp-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="6 3 18 3 22 9 12 22 2 9 6 3"/></svg></span>
+              <div class="comp-label">Scallop / Cusp</div>
+              <div class="comp-values">
+                <span class="comp-base" id="comp-base-scallop">42.5 µm</span>
+                <span class="comp-arrow">→</span>
+                <span class="comp-opt highlight-purple" id="comp-opt-scallop">14.2 µm</span>
+              </div>
+              <div class="comp-delta delta-pos" id="delta-scallop">-66.6% Smoother</div>
+            </div>
+
+            <div class="comp-metric-card">
+              <span class="comp-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+              <div class="comp-label">Energy Consumed</div>
+              <div class="comp-values">
+                <span class="comp-base" id="comp-base-energy">0.38 kWh</span>
+                <span class="comp-arrow">→</span>
+                <span class="comp-opt highlight-green" id="comp-opt-energy">0.21 kWh</span>
+              </div>
+              <div class="comp-delta delta-pos" id="delta-energy">-44.7% Power</div>
+            </div>
+
+            <div class="comp-metric-card comp-card-wide">
+              <span class="comp-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+              <div class="comp-label">G-Code Size & Micro-Movements</div>
+              <div class="comp-values">
+                <span class="comp-base" id="comp-base-lines">48,349 lines (36k micro)</span>
+                <span class="comp-arrow">→</span>
+                <span class="comp-opt highlight-cyan" id="comp-opt-lines">9,200 lines (0 micro)</span>
+              </div>
+              <div class="comp-delta delta-pos" id="delta-lines">-81.0% G-Code Compression</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: The 4 Optimization Rationales -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg> 5. Engineering Insights & Rationales</h3>
+          <div class="opt-rationales-accordion">
+            <div class="rationale-block">
+              <div class="rationale-header">
+                <span class="rat-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg></span>
+                <b>A. Machining-Time Optimizer</b>
+              </div>
+              <p class="rat-text" id="rat-time-text">Calculating cycle time accounting for machine acceleration kinematics and air-cutting reduction...</p>
+            </div>
+
+            <div class="rationale-block">
+              <div class="rationale-header">
+                <span class="rat-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+                <b>B. Tool-Life Optimizer</b>
+              </div>
+              <p class="rat-text" id="rat-tool-text">Calculating chipload, cutting force, and deflection limits for cutter preservation...</p>
+            </div>
+
+            <div class="rationale-block">
+              <div class="rationale-header">
+                <span class="rat-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="6 3 18 3 22 9 12 22 2 9 6 3"/></svg></span>
+                <b>C. Surface-Quality Optimizer</b>
+              </div>
+              <p class="rat-text" id="rat-surface-text">Calculating scallop height and curvature-adaptive stepover for required finish...</p>
+            </div>
+
+            <div class="rationale-block">
+              <div class="rationale-header">
+                <span class="rat-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 9.5a2.5 2.5 0 0 1 5 0c0 2-3 2-3 4h3"/></svg></span>
+                <b>D. Productivity & Resource Optimizer</b>
+              </div>
+              <p class="rat-text" id="rat-prod-text">Estimating total cycle cost, power efficiency, and cutter consumption savings...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 6: Action Footer -->
+        <div class="optimizer-actions-sticky">
+          <button id="btn-opt-recalc" class="btn btn-secondary" title="Recalculate multi-objective metrics for selected settings">
+            <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg></span> Recalculate
+          </button>
+          <button id="btn-opt-apply" class="btn btn-primary btn-opt-main" title="Apply optimization, slice model, fit arcs, and update 3D toolpaths">
+            <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span> Optimize & Apply Toolpath
+          </button>
         </div>
       </aside>
     </div>
@@ -872,7 +957,7 @@
     <!-- G-Code Inspector Drawer/Modal -->
     <div id="gcode-modal" class="gcode-modal" style="display: none;">
       <div class="gcode-modal-header">
-        <span class="gcode-modal-title">📜 Generated Machine G-Code (GRBL / LinuxCNC)</span>
+        <span class="gcode-modal-title"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Generated Machine G-Code (GRBL / LinuxCNC)</span>
         <div class="gcode-modal-actions">
           <span id="gcode-lines-count" class="gcode-lines-badge">0 lines</span>
           <button id="btn-copy-gcode" class="btn-tool">Copy</button>
@@ -881,14 +966,14 @@
       </div>
       <!-- G-Code Machine Verification Banner -->
       <div class="gcode-verify-banner" id="gcode-verify-banner">
-        <div class="verify-badge pass" id="verify-status-badge">✅ VERIFIED: READY TO RUN</div>
+        <div class="verify-badge pass" id="verify-status-badge"><svg class="svg-icon" style="color:#34d399;stroke-width:2.5;" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> VERIFIED: READY TO RUN</div>
         <div class="verify-details" id="verify-details">
           <span>Bounds: <b id="verify-bounds">X[0, 100] Y[0, 100] Z[0, 30]</b></span>
           <span>Feed: <b id="verify-feed">1200 mm/min</b></span>
           <span>Spindle: <b id="verify-spindle">16,000 RPM</b></span>
         </div>
         <div class="verify-actions">
-          <a href="https://ncviewer.com" target="_blank" class="btn btn-micro" style="text-decoration: none; color: #38bdf8;" title="Open free NCViewer browser simulator">🌐 Open in NCViewer</a>
+          <a href="https://ncviewer.com" target="_blank" class="btn btn-micro" style="text-decoration: none; color: #38bdf8;" title="Open free NCViewer browser simulator"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Open in NCViewer</a>
         </div>
       </div>
       <div class="gcode-modal-body">
@@ -896,13 +981,19 @@
       </div>
     </div>
 
-    <!-- Status Bar -->
     <footer class="app-statusbar">
-      <span id="status-text">Ready. Insert 3D model, adjust orientation, and click Slice Stock.</span>
-      <span class="status-right">G-Code: GRBL 1.1 / LinuxCNC Compatible • Units: Metric (mm)</span>
+      <div class="status-left">
+        <span class="status-indicator-dot" id="status-pulse-dot"></span>
+        <span id="status-text">Ready. Insert 3D model, adjust orientation, and click Slice Stock.</span>
+      </div>
+      <div class="status-right">
+        <span class="status-pill">Origin: <b>Center (0, 0, 0)</b></span>
+        <span class="status-pill">Units: <b>Metric (mm)</b></span>
+        <span class="status-pill">Dialect: <b id="status-dialect">GRBL 1.1</b></span>
+      </div>
     </footer>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=3.0"></script>
 </body>
 </html>

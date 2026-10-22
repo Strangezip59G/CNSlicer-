@@ -1,5 +1,5 @@
 """
-CNC Milling Slicer — Subtractive Studio
+CNSlicer — Subtractive Studio
 Native Windows Desktop Application Entry Point
 """
 from __future__ import annotations
@@ -84,15 +84,18 @@ def main():
         print(f"Warning: Slicer backend on port {port} took longer than expected to start.")
 
     # Locate application icon
-    icon_path = None
-    for candidate in [BASE_DIR / "assets" / "icon.ico", BASE_DIR / "ui" / "static" / "icon.png"]:
-        if candidate.exists():
-            icon_path = str(candidate)
-            break
+    icon_candidates = [
+        BASE_DIR / "assets" / "icon.ico",
+        Path(__file__).resolve().parent / "assets" / "icon.ico" if not getattr(sys, "frozen", False) else None,
+        Path(sys.executable).parent / "assets" / "icon.ico" if getattr(sys, "frozen", False) else None,
+        Path(sys.executable).parent / "_internal" / "assets" / "icon.ico" if getattr(sys, "frozen", False) else None,
+        BASE_DIR / "ui" / "static" / "icon.png",
+    ]
+    icon_path = next((str(c) for c in icon_candidates if c and c.exists()), None)
 
     # Launch native desktop application window via Edge WebView2
     window = webview.create_window(
-        title="CNC Milling Slicer — Subtractive Studio v1.0",
+        title="CNSlicer — Subtractive Studio v1.0",
         url=f"http://127.0.0.1:{port}",
         width=1400,
         height=900,
@@ -101,8 +104,11 @@ def main():
         text_select=True
     )
 
-    # Start webview event loop
-    webview.start(debug=False)
+    # Start webview event loop with custom desktop icon
+    if icon_path:
+        webview.start(icon=icon_path, debug=False)
+    else:
+        webview.start(debug=False)
 
     # When the desktop window is closed by the user, terminate application
     sys.exit(0)

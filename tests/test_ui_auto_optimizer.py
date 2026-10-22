@@ -70,5 +70,17 @@ class TestAutoOptimizerUI(unittest.TestCase):
         self.assertIn("opt-fastest-warning", self.js)
 
 
+    def test_professional_ui_elements(self):
+        # 1. Model Telemetry Pill & Pulse Indicator Dot
+        self.assertIn("opt-status-model-pill", self.html)
+        self.assertIn("status-pulse-dot", self.html)
+        self.assertIn("status-indicator-dot", self.css)
+        self.assertIn("setStatus", self.js)
+
+        # 2. Custom Select & Inset Inputs Styling
+        self.assertIn("appearance: none", self.css)
+        self.assertIn("border-radius: 9999px", self.css)
+
+
 if __name__ == "__main__":
     unittest.main()

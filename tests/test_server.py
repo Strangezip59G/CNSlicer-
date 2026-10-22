@@ -11,7 +11,7 @@ class TestServerEndpoints(unittest.TestCase):
     def test_index_page(self):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
-        self.assertIn(b"CNC Milling Slicer", res.data)
+        self.assertIn(b"CNSlicer", res.data)
 
     def test_lidar_scan_endpoint(self):
         res = self.client.post("/api/lidar/scan", data=json.dumps({
@@ -168,6 +168,10 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertIn("shapeoko_4", machine_ids)
         self.assertIn("nomad_3", machine_ids)
         self.assertIn("bantam_desktop", machine_ids)
+        self.assertIn("haas_vf2", machine_ids)
+        self.assertIn("datron_neo", machine_ids)
+        self.assertIn("brother_speedio", machine_ids)
+        self.assertIn("dmg_mori_cmx600v", machine_ids)
 
         # 2. Select Shapeoko 4
         sel_res = self.client.post("/api/machines/select", data=json.dumps({
@@ -179,6 +183,18 @@ class TestServerEndpoints(unittest.TestCase):
         self.assertEqual(sel_data["active_machine"]["name"], "Shapeoko 4 Standard")
         self.assertEqual(sel_data["active_machine"]["bed_width_x"], 444.0)
         self.assertEqual(sel_data["active_machine"]["bed_length_y"], 444.0)
+
+        # 3. Select Industrial Machine: Haas VF-2
+        haas_res = self.client.post("/api/machines/select", data=json.dumps({
+            "machine_id": "haas_vf2"
+        }), content_type="application/json")
+        self.assertEqual(haas_res.status_code, 200)
+        haas_data = haas_res.get_json()
+        self.assertTrue(haas_data["success"])
+        self.assertEqual(haas_data["active_machine"]["name"], "Haas VF-2 (Industrial VMC)")
+        self.assertEqual(haas_data["active_machine"]["bed_width_x"], 762.0)
+        self.assertEqual(haas_data["active_machine"]["max_z_travel"], 508.0)
+        self.assertEqual(haas_data["active_machine"]["spindle_max_rpm"], 12000)
 
         # 3. Select custom machine
         cust_res = self.client.post("/api/machines/select", data=json.dumps({

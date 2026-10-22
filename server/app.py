@@ -30,7 +30,22 @@ from engine.optimizer.material_database import MATERIALS, get_material
 from engine.optimizer.machining_optimizer import MachiningOptimizer
 from engine.optimizer.gcode_optimizer import GCodeOptimizer
 
-UI_DIR = ROOT_DIR / "ui"
+# Resolve UI directory robustly across source code, onefile bundles, and onedir layouts
+def _find_ui_dir() -> Path:
+    candidates = []
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            candidates.append(Path(sys._MEIPASS) / "ui")
+        candidates.append(Path(sys.executable).parent / "ui")
+        candidates.append(Path(sys.executable).parent / "_internal" / "ui")
+    candidates.append(ROOT_DIR / "ui")
+    candidates.append(Path(__file__).resolve().parent.parent / "ui")
+    for c in candidates:
+        if c.exists() and (c / "index.html").exists():
+            return c
+    return ROOT_DIR / "ui"
+
+UI_DIR = _find_ui_dir()
 STATIC_DIR = UI_DIR / "static"
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), template_folder=str(UI_DIR))
@@ -43,6 +58,14 @@ latest_optimizer_report: dict | None = None
 current_loaded_mesh: trimesh.Trimesh | None = None
 current_mesh_metadata: dict = {}
 active_machine: CNCProfile = STANDARD_CNC_MACHINES["genmitsu_3018"]
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "-1"
+    return response
 
 
 @app.get("/")
@@ -147,7 +170,7 @@ def scan_lidar():
 @app.post("/api/slice")
 def slice_model():
     """Execute subtractive slicing: Stock(Z) - Part(Z) down every Z layer."""
-    global latest_slicing_result, latest_stock, latest_optimized_gcode
+    global latest_slicing_result, latest_stock, latest_optimized_gcode, active_machine
     latest_optimized_gcode = None
     data = request.get_json(force=True) or {}
 
@@ -402,7 +425,16 @@ def upload_stl():
 def sample_pyramid():
     """Load the preset 3-Tier Stepped Pyramid STL model."""
     global current_loaded_mesh, current_mesh_metadata
-    fixture_path = ROOT_DIR / "tests" / "fixtures" / "stepped_pyramid.stl"
+    fixture_candidates = [
+        ROOT_DIR / "tests" / "fixtures" / "stepped_pyramid.stl",
+        Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "stepped_pyramid.stl"
+    ]
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            fixture_candidates.insert(0, Path(sys._MEIPASS) / "tests" / "fixtures" / "stepped_pyramid.stl")
+        fixture_candidates.insert(1, Path(sys.executable).parent / "tests" / "fixtures" / "stepped_pyramid.stl")
+        fixture_candidates.insert(2, Path(sys.executable).parent / "_internal" / "tests" / "fixtures" / "stepped_pyramid.stl")
+    fixture_path = next((f for f in fixture_candidates if f.exists()), fixture_candidates[0])
     if not fixture_path.exists():
         return jsonify({"error": "Fixture not found"}), 404
 
@@ -943,7 +975,7 @@ def download_gcode():
 
 if __name__ == "__main__":
     print("==================================================")
-    print("  CNC Milling Slicer — Subtractive Studio")
+    print("  CNSlicer — Subtractive Studio")
     print("  Open in Chromium / Browser: http://127.0.0.1:5000")
     print("==================================================")
     app.run(host="127.0.0.1", port=5000, debug=False)

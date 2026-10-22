@@ -40,5 +40,16 @@ class TestBedPositioningRulers(unittest.TestCase):
             self.assertGreater(m.bed_length_y, 50)
             self.assertGreater(m.max_z_travel, 10)
 
+    def test_dual_machine_select_dropdowns_exist_and_sync(self):
+        with open(self.html_path, "r", encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn('id="machine-select"', html)
+        self.assertIn('id="machine-select-sidebar"', html)
+
+        with open(self.js_path, "r", encoding="utf-8") as f:
+            js = f.read()
+        self.assertIn("machine-select-sidebar", js)
+        self.assertIn("onMachineSelectChanged", js)
+
 if __name__ == "__main__":
     unittest.main()

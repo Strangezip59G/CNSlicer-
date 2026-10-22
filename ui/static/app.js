@@ -1,4 +1,4 @@
-// CNC Milling Slicer — Subtractive Studio Version 1
+// CNSlicer — Subtractive Studio Version 1
 let scene, camera, renderer, controls, transformControls;
 let bedGrid, stockMesh, partMeshGroup, toolpathLinesGroup, toolMeshGroup;
 let silhouetteOutlineGroup, featureEdgesGroup;
@@ -18,6 +18,23 @@ let machinesList = [];
 let travelCageMesh = null;
 let bedFeaturesMesh = null;
 let bedNumbersMesh = null;
+
+// Universal Status Bar & Pulse Dot Telemetry Helper
+function setStatus(text, state = "ready") {
+  const elText = document.getElementById("status-text");
+  const elDot = document.getElementById("status-pulse-dot");
+  if (elText) elText.textContent = text;
+  if (elDot) {
+    elDot.className = "status-indicator-dot";
+    if (state === "busy" || state === "amber") {
+      elDot.classList.add("busy-amber");
+    } else if (state === "scan" || state === "purple") {
+      elDot.classList.add("scan-purple");
+    } else if (state === "error" || state === "red") {
+      elDot.classList.add("error-red");
+    }
+  }
+}
 
 // Initialize Three.js 3D Viewport
 function initViewport() {
@@ -43,6 +60,13 @@ function initViewport() {
   controls.target.set(0, 0, 15);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
+
+  // Clear camera preset active highlight when user manually orbits
+  controls.addEventListener("start", () => {
+    document.querySelectorAll(".views-control-capsule .btn-view-pill").forEach(btn => {
+      btn.classList.remove("active");
+    });
+  });
 
   // Transform Gizmo Controls (Creality Slicer 3D handles)
   transformControls = new THREE.TransformControls(camera, renderer.domElement);
@@ -532,7 +556,7 @@ function createCornerHomeMarker(w, l) {
   ctx.font = "bold 20px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("📐 MACHINE (0, 0)", canvas.width / 2, canvas.height / 2);
+  ctx.fillText("MACHINE (0, 0)", canvas.width / 2, canvas.height / 2);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
@@ -633,8 +657,22 @@ function createBedGrid(machine) {
 
   // 1. Spoilboard Base Plate (Material finish adapts to machine style)
   let plateMat;
-  if (layout === "mdf_hybrid_spoilboard") {
-    // Warm MDF fiberboard (Shapeoko 4)
+  if (layout === "cast_iron_tslot") {
+    // Heavy Cast-Iron Industrial Machine Table (Haas VF-2, Tormach 1100M, DMG MORI, Brother)
+    plateMat = new THREE.MeshStandardMaterial({
+      color: 0x17191e,
+      roughness: 0.38,
+      metalness: 0.85
+    });
+  } else if (layout === "vacuum_chuck_bed") {
+    // Precision Vacuum Bed Plate with Integrated Suction Zones (Datron neo)
+    plateMat = new THREE.MeshStandardMaterial({
+      color: 0x192130,
+      roughness: 0.32,
+      metalness: 0.78
+    });
+  } else if (layout === "mdf_hybrid_spoilboard") {
+    // Warm MDF fiberboard (Shapeoko 4, Avid CNC)
     plateMat = new THREE.MeshStandardMaterial({
       color: 0x3d3024,
       roughness: 0.9,
@@ -668,18 +706,109 @@ function createBedGrid(machine) {
   plate.position.set(0, 0, -0.2);
   gridGroup.add(plate);
 
-  // 2. Main Dimension Grid (10mm / 50mm subdivisions)
-  const gridDivs = Math.max(10, Math.floor(Math.max(w, l) / 10));
-  const grid = new THREE.GridHelper(Math.max(w, l), gridDivs, 0x475569, 0x27272a);
-  grid.rotation.x = Math.PI / 2;
-  grid.position.set(0, 0, 0);
-  gridGroup.add(grid);
+  // 2. Main Dimension Grid: Exact rectangular boundaries matching (w x l)
+  const gridLinesPts = [];
+  const gridColors = [];
+  const colMajor = new THREE.Color(0x38bdf8); // 50mm major grid lines
+  const colMinor = new THREE.Color(0x272b35); // 10mm minor grid lines
+  const colZero = new THREE.Color(0x00f0ff);  // Center zero crosshairs
+
+  const xHalf = w / 2;
+  const yHalf = l / 2;
+
+  // Grid lines along Y (spanning from -l/2 to +l/2 at constant X)
+  for (let x = -xHalf; x <= xHalf + 0.001; x += 10) {
+    const isZero = Math.abs(x) < 0.1;
+    const isMajor = Math.abs(Math.round(x) % 50) < 0.1;
+    const c = isZero ? colZero : (isMajor ? colMajor : colMinor);
+    gridLinesPts.push(new THREE.Vector3(x, -yHalf, 0.02), new THREE.Vector3(x, yHalf, 0.02));
+    gridColors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+  }
+
+  // Grid lines along X (spanning from -w/2 to +w/2 at constant Y)
+  for (let y = -yHalf; y <= yHalf + 0.001; y += 10) {
+    const isZero = Math.abs(y) < 0.1;
+    const isMajor = Math.abs(Math.round(y) % 50) < 0.1;
+    const c = isZero ? colZero : (isMajor ? colMajor : colMinor);
+    gridLinesPts.push(new THREE.Vector3(-xHalf, y, 0.02), new THREE.Vector3(xHalf, y, 0.02));
+    gridColors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+  }
+
+  const gridGeo = new THREE.BufferGeometry().setFromPoints(gridLinesPts);
+  gridGeo.setAttribute("color", new THREE.Float32BufferAttribute(gridColors, 3));
+  const gridMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
+  gridGroup.add(new THREE.LineSegments(gridGeo, gridMat));
 
   // 3. Bed-Specific Clamping Layout Features (T-Tracks, Fixture Holes, Dogholes)
   const featuresGroup = new THREE.Group();
   featuresGroup.name = "bedFeaturesGroup";
 
-  if (layout === "aluminum_tslot" || layout === "mdf_hybrid_spoilboard") {
+  if (layout === "cast_iron_tslot") {
+    // Heavy Industrial Cast-Iron Ground Table: Deep T-Slots & Coolant Perimeter
+    const pitch = (machine && machine.t_slot_pitch_mm) ? machine.t_slot_pitch_mm : 75;
+    const trackCount = Math.max(3, Math.floor((l - 60) / pitch));
+    const startY = -(trackCount * pitch) / 2 + pitch / 2;
+
+    const trackLinePts = [];
+    const slotMeshGroup = new THREE.Group();
+
+    for (let i = 0; i < trackCount; i++) {
+      const y = startY + i * pitch;
+      const slotGeo = new THREE.PlaneGeometry(w - 10, 14);
+      const slotMat = new THREE.MeshBasicMaterial({ color: 0x090a0d });
+      const slotMesh = new THREE.Mesh(slotGeo, slotMat);
+      slotMesh.position.set(0, y, -0.08);
+      slotMeshGroup.add(slotMesh);
+
+      // Bright ground T-slot edges
+      trackLinePts.push(new THREE.Vector3(-w / 2 + 5, y - 7, 0.05));
+      trackLinePts.push(new THREE.Vector3(w / 2 - 5, y - 7, 0.05));
+      trackLinePts.push(new THREE.Vector3(-w / 2 + 5, y + 7, 0.05));
+      trackLinePts.push(new THREE.Vector3(w / 2 - 5, y + 7, 0.05));
+    }
+
+    // Industrial Coolant Drainage Perimeter Trough
+    const drainGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-w / 2 + 4, -l / 2 + 4, 0.04), new THREE.Vector3(w / 2 - 4, -l / 2 + 4, 0.04),
+      new THREE.Vector3(w / 2 - 4, -l / 2 + 4, 0.04), new THREE.Vector3(w / 2 - 4, l / 2 - 4, 0.04),
+      new THREE.Vector3(w / 2 - 4, l / 2 - 4, 0.04), new THREE.Vector3(-w / 2 + 4, l / 2 - 4, 0.04),
+      new THREE.Vector3(-w / 2 + 4, l / 2 - 4, 0.04), new THREE.Vector3(-w / 2 + 4, -l / 2 + 4, 0.04)
+    ]);
+    const drainMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, opacity: 0.6, transparent: true });
+    featuresGroup.add(new THREE.LineSegments(drainGeo, drainMat));
+
+    featuresGroup.add(slotMeshGroup);
+    if (trackLinePts.length > 0) {
+      const trackLinesGeo = new THREE.BufferGeometry().setFromPoints(trackLinePts);
+      const trackLinesMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 2 });
+      featuresGroup.add(new THREE.LineSegments(trackLinesGeo, trackLinesMat));
+    }
+  } else if (layout === "vacuum_chuck_bed") {
+    // High-Speed Vacuum Chuck Bed (Datron neo): Grid of suction ports & gasket grooves
+    const vPitch = 30.0;
+    const cols = Math.floor((w - 20) / vPitch);
+    const rows = Math.floor((l - 20) / vPitch);
+    const startX = -(cols * vPitch) / 2 + vPitch / 2;
+    const startY = -(rows * vPitch) / 2 + vPitch / 2;
+
+    const vacPts = [];
+    for (let c = 0; c < cols; c++) {
+      const vx = startX + c * vPitch;
+      for (let r = 0; r < rows; r++) {
+        const vy = startY + r * vPitch;
+        // Circular vacuum suction hole
+        for (let a = 0; a <= 8; a++) {
+          const theta = (a / 8) * Math.PI * 2;
+          vacPts.push(new THREE.Vector3(vx + 2.0 * Math.cos(theta), vy + 2.0 * Math.sin(theta), 0.05));
+        }
+      }
+    }
+    if (vacPts.length > 0) {
+      const vacGeo = new THREE.BufferGeometry().setFromPoints(vacPts);
+      const vacMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, opacity: 0.65, transparent: true });
+      featuresGroup.add(new THREE.Line(vacGeo, vacMat));
+    }
+  } else if (layout === "aluminum_tslot" || layout === "mdf_hybrid_spoilboard") {
     // Parallel Aluminum T-Tracks along X
     const pitch = (machine && machine.t_slot_pitch_mm) ? machine.t_slot_pitch_mm : 25;
     const trackCount = Math.floor(l / pitch);
@@ -860,18 +989,41 @@ async function loadMachineProfiles() {
       machinesList = data.machines;
       currentMachine = data.active_machine || machinesList[0];
 
-      // Populate select dropdown
-      const sel = document.getElementById("machine-select");
-      if (sel) {
+      // Populate both select dropdowns (header and sidebar) with categorized optgroups
+      const selHeader = document.getElementById("machine-select");
+      const selSidebar = document.getElementById("machine-select-sidebar");
+      [selHeader, selSidebar].forEach((sel) => {
+        if (!sel) return;
         sel.innerHTML = "";
+
+        const industrialIds = ["tormach_1100m", "datron_neo", "brother_speedio", "haas_vf2", "dmg_mori_cmx600v", "avid_pro4848"];
+
+        const grpDesktop = document.createElement("optgroup");
+        grpDesktop.label = "Desktop & Benchtop CNC";
+        const grpIndustrial = document.createElement("optgroup");
+        grpIndustrial.label = "Industrial Machining Centers";
+        const grpCustom = document.createElement("optgroup");
+        grpCustom.label = "Custom Spoilboard";
+
         machinesList.forEach((m) => {
           const opt = document.createElement("option");
           opt.value = m.id;
           opt.textContent = `${m.name} (${m.envelope_label})`;
           if (m.id === currentMachine.id) opt.selected = true;
-          sel.appendChild(opt);
+
+          if (m.id === "custom_mill") {
+            grpCustom.appendChild(opt);
+          } else if (industrialIds.includes(m.id)) {
+            grpIndustrial.appendChild(opt);
+          } else {
+            grpDesktop.appendChild(opt);
+          }
         });
-      }
+
+        if (grpDesktop.children.length > 0) sel.appendChild(grpDesktop);
+        if (grpIndustrial.children.length > 0) sel.appendChild(grpIndustrial);
+        if (grpCustom.children.length > 0) sel.appendChild(grpCustom);
+      });
 
       updateMachineUI(currentMachine);
       createBedGrid(currentMachine);
@@ -892,7 +1044,13 @@ async function loadMachineProfiles() {
 }
 
 function updateMachineUI(machine) {
-  // Header badge
+  // Synchronize both select dropdowns
+  const selHeader = document.getElementById("machine-select");
+  if (selHeader && selHeader.value !== machine.id) selHeader.value = machine.id;
+  const selSidebar = document.getElementById("machine-select-sidebar");
+  if (selSidebar && selSidebar.value !== machine.id) selSidebar.value = machine.id;
+
+  // Header badge (if present)
   const headerName = document.getElementById("header-machine-name");
   if (headerName) headerName.textContent = machine.name;
   const headerBed = document.getElementById("header-machine-bed");
@@ -910,6 +1068,8 @@ function updateMachineUI(machine) {
       mdf_hybrid_spoilboard: "MDF / T-Track Hybrid",
       precision_tooling: "Precision Tooling Plate",
       wasteboard_ruler_grid: "Wasteboard Metric Grid",
+      cast_iron_tslot: "Cast-Iron Precision Table",
+      vacuum_chuck_bed: "High-Speed Vacuum Bed",
       custom_bed: "Custom Spoilboard"
     };
     statLayout.textContent = layoutNames[machine.bed_layout] || machine.bed_layout;
@@ -932,9 +1092,14 @@ function updateMachineUI(machine) {
   updateStockClampingCard();
 }
 
-async function onMachineSelectChanged() {
-  const sel = document.getElementById("machine-select");
-  const machineId = sel.value;
+async function onMachineSelectChanged(selectedId) {
+  const selHeader = document.getElementById("machine-select");
+  const selSidebar = document.getElementById("machine-select-sidebar");
+  const machineId = selectedId || (selHeader ? selHeader.value : (selSidebar ? selSidebar.value : "genmitsu_3018"));
+
+  // Sync both dropdown values immediately
+  if (selHeader && selHeader.value !== machineId) selHeader.value = machineId;
+  if (selSidebar && selSidebar.value !== machineId) selSidebar.value = machineId;
 
   const customControls = document.getElementById("custom-machine-controls");
   if (customControls) {
@@ -953,7 +1118,7 @@ async function onMachineSelectChanged() {
       updateMachineUI(currentMachine);
       createBedGrid(currentMachine);
       setCameraView("iso");
-      document.getElementById("status-text").textContent = `Active Machine Profile: ${currentMachine.name} (${currentMachine.bed_width_x} × ${currentMachine.bed_length_y} × ${currentMachine.max_z_travel} mm). Bed layout updated.`;
+      setStatus(`Active Machine Profile: ${currentMachine.name} (${currentMachine.bed_width_x} × ${currentMachine.bed_length_y} × ${currentMachine.max_z_travel} mm). Spoilboard updated.`, "ready");
     }
   } catch (err) {
     console.error("Machine selection error:", err);
@@ -994,7 +1159,11 @@ async function applyCustomBedDimensions() {
 function setupMachineControls() {
   const machineSelect = document.getElementById("machine-select");
   if (machineSelect) {
-    machineSelect.addEventListener("change", onMachineSelectChanged);
+    machineSelect.addEventListener("change", (e) => onMachineSelectChanged(e.target.value));
+  }
+  const machineSelectSidebar = document.getElementById("machine-select-sidebar");
+  if (machineSelectSidebar) {
+    machineSelectSidebar.addEventListener("change", (e) => onMachineSelectChanged(e.target.value));
   }
 
   const btnApplyCustom = document.getElementById("btn-apply-custom-bed");
@@ -1240,6 +1409,39 @@ function updateStockClampingCard(shape, w, l, dia, cx, cy) {
 
   spanCenterEl.textContent = `X: [${fmtSign(minX)}, ${fmtSign(maxX)}] Y: [${fmtSign(minY)}, ${fmtSign(maxY)}] mm`;
   spanCornerEl.textContent = `X: [${cornerMinX.toFixed(1)}, ${cornerMaxX.toFixed(1)}] Y: [${cornerMinY.toFixed(1)}, ${cornerMaxY.toFixed(1)}] mm`;
+
+  updateSubHeaderTelemetry();
+}
+
+// Update Apple Sub-Header Telemetry (Rest dash: File | Stock | Tool | Speed | Time)
+function updateSubHeaderTelemetry() {
+  const stockW = document.getElementById("stock-w")?.value || "70";
+  const stockL = document.getElementById("stock-l")?.value || "70";
+  const stockT = document.getElementById("stock-t")?.value || "30";
+  const shape = document.getElementById("stock-shape")?.value || "box";
+  const toolVal = document.getElementById("tool-select")?.value || "flat_1_8";
+  const feedXy = document.getElementById("feed-xy")?.value || "1200";
+  const rpm = document.getElementById("spindle-rpm")?.value || "10000";
+
+  const toolLabels = {
+    flat_1_8: '1/8" Flat Endmill (3.175mm)',
+    flat_1_4: '1/4" Flat Endmill (6.35mm)',
+    flat_6mm: '6.0mm Rougher',
+    v_bit_60: '60° V-Bit Engraver'
+  };
+
+  const elStock = document.getElementById("telemetry-stock-dim");
+  if (elStock) {
+    elStock.textContent = shape === "cylinder" ? `Ø${stockW} × ${stockT} mm` : `${stockW}×${stockL}×${stockT} mm`;
+  }
+  const elTool = document.getElementById("telemetry-tool-name");
+  if (elTool) {
+    elTool.textContent = toolLabels[toolVal] || toolVal;
+  }
+  const elSpeed = document.getElementById("telemetry-speed-val");
+  if (elSpeed) {
+    elSpeed.textContent = `${parseInt(rpm, 10).toLocaleString()} RPM @ ${feedXy} mm/min`;
+  }
 }
 
 // Keep stock and silhouette outline positions synchronized with model
@@ -1312,6 +1514,14 @@ function display3DMesh(vertices, faces, metadata, analysis = null) {
   document.getElementById("model-dim-z").value = metadata.height.toFixed(1);
   document.getElementById("model-poly-count").value = metadata.faces_count || faces.length;
 
+  // Update Studio Tab model telemetry pill
+  const modelPill = document.getElementById("opt-status-model-pill");
+  const modelName = document.getElementById("opt-status-model-name");
+  if (modelPill && modelName) {
+    modelName.textContent = `${metadata.name || "Model"} (${metadata.width.toFixed(0)}×${metadata.length.toFixed(0)}×${metadata.height.toFixed(0)} mm)`;
+    modelPill.style.display = "inline-flex";
+  }
+
   // Reset transform inputs to identity
   resetTransformsUI();
 
@@ -1322,7 +1532,7 @@ function display3DMesh(vertices, faces, metadata, analysis = null) {
     runDesignAnalysis(true);
   }
 
-  document.getElementById("status-text").textContent = `Loaded 3D Model: ${metadata.name} (${metadata.width.toFixed(1)} x ${metadata.length.toFixed(1)} x ${metadata.height.toFixed(1)} mm)`;
+  setStatus(`Loaded 3D Model: ${metadata.name} (${metadata.width.toFixed(1)} x ${metadata.length.toFixed(1)} x ${metadata.height.toFixed(1)} mm)`, "ready");
 }
 
 // Reset UI transform fields
@@ -1623,7 +1833,7 @@ function applyAutoModeRecommendations(data) {
   if (telemCard) {
     telemCard.style.display = "block";
     const pill = document.getElementById("auto-summary-pill");
-    if (pill) pill.textContent = `⚡ Auto: ${data.summary}`;
+    if (pill) pill.textContent = `Optimal: ${data.summary}`;
 
     const list = document.getElementById("auto-reasons-list");
     if (list && data.reasons) {
@@ -1637,7 +1847,7 @@ function applyAutoModeRecommendations(data) {
   }
 
   // 7. Update status bar
-  document.getElementById("status-text").textContent = `⚡ Auto Mode Applied: ${data.tool_name} • ${data.clearing_pattern} pattern • ${data.stepdown_mm}mm DOC • ${data.spindle_rpm.toLocaleString()} RPM @ ${data.feed_xy_mm_min} mm/min.`;
+  document.getElementById("status-text").textContent = `Auto Mode Applied: ${data.tool_name} • ${data.clearing_pattern} pattern • ${data.stepdown_mm}mm DOC • ${data.spindle_rpm.toLocaleString()} RPM @ ${data.feed_xy_mm_min} mm/min.`;
 }
 
 function highlightAutoElement(el) {
@@ -2024,7 +2234,7 @@ async function autoScanBedLidar() {
     badge.style.background = "#7e22ce";
   }
 
-  document.getElementById("status-text").textContent = "Toolhead LiDAR sweeping machine bed to locate stock coordinates & surface flatness...";
+  setStatus("Toolhead LiDAR sweeping machine bed to locate stock coordinates & surface flatness...", "scan");
 
   const stockW = parseFloat(document.getElementById("stock-w").value || 70);
   const stockL = parseFloat(document.getElementById("stock-l").value || 70);
@@ -2061,10 +2271,11 @@ async function autoScanBedLidar() {
         badge.textContent = "Stock Located (Auto)";
         badge.style.background = "#065f46";
       }
-      document.getElementById("status-text").textContent = `LiDAR Detection: Located ${data.width.toFixed(1)} x ${data.length.toFixed(1)} x ${data.thickness.toFixed(1)} mm stock. Auto-leveling active.`;
+      setStatus(`LiDAR Detection: Located ${data.width.toFixed(1)} x ${data.length.toFixed(1)} x ${data.thickness.toFixed(1)} mm stock. Auto-leveling active.`, "ready");
     }
   } catch (err) {
     console.error("Scan error:", err);
+    setStatus("LiDAR surface scan failed.", "error");
   }
 }
 
@@ -2073,7 +2284,7 @@ async function sliceCurrentModel() {
   const sliceBtn = document.getElementById("btn-slice");
   sliceBtn.disabled = true;
   sliceBtn.textContent = "Slicing...";
-  document.getElementById("status-text").textContent = "Calculating Subtractive Slices: Stock(Z) - Part(Z)...";
+  setStatus("Calculating Subtractive Slices: Stock(Z) - Part(Z)...", "busy");
 
   try {
     const payload = {
@@ -2125,6 +2336,10 @@ async function sliceCurrentModel() {
     document.getElementById("stat-cut-dist").textContent = `${data.cut_distance_mm.toFixed(0)} mm`;
     document.getElementById("stat-rapid-dist").textContent = `${data.rapid_distance_mm.toFixed(0)} mm`;
     document.getElementById("stat-est-time").textContent = `${data.estimated_minutes.toFixed(1)} min`;
+    const optTime = document.getElementById("opt-status-time");
+    if (optTime) {
+      optTime.textContent = `${data.estimated_minutes.toFixed(1)} min`;
+    }
 
     // Configure vertical layer slider
     const slider = document.getElementById("layer-slider");
@@ -2138,13 +2353,13 @@ async function sliceCurrentModel() {
 
     document.getElementById("btn-view-gcode").disabled = false;
     document.getElementById("btn-export-gcode").disabled = false;
-    document.getElementById("status-text").textContent = `Slicing complete: ${data.layer_count} layers computed. Scrub layer slider or click ▶ to simulate tool.`;
+    setStatus(`Slicing complete: ${data.layer_count} layers computed. Scrub layer slider or click ▶ to simulate tool.`, "ready");
   } catch (err) {
     console.error("Slicing failed:", err);
-    document.getElementById("status-text").textContent = "Slicing failed. Check console.";
+    setStatus("Slicing failed. Check console.", "error");
   } finally {
     sliceBtn.disabled = false;
-    sliceBtn.textContent = "🔪 Slice Stock";
+    sliceBtn.innerHTML = '<span class="slice-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 14l8-8 8 8-8 8-8-8z"/><line x1="2" y1="12" x2="22" y2="12"/></svg></span> Slice Stock';
   }
 }
 
@@ -2224,7 +2439,7 @@ function toggleSimulation() {
   if (isSimulating) {
     clearInterval(simInterval);
     isSimulating = false;
-    simBtn.textContent = "▶";
+    simBtn.innerHTML = '<svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: #ffffff; stroke: none; margin-left: 2px;"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
     toolMeshGroup.visible = false;
     document.getElementById("status-text").textContent = "Simulation paused.";
     return;
@@ -2246,7 +2461,7 @@ function toggleSimulation() {
 
   isSimulating = true;
   simIndex = 0;
-  simBtn.textContent = "⏸";
+  simBtn.innerHTML = '<svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: #ffffff; stroke: none;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
   toolMeshGroup.visible = true;
 
   const speedMult = parseFloat(document.getElementById("sim-speed-select").value) || 5;
@@ -2256,7 +2471,7 @@ function toggleSimulation() {
     if (simIndex >= simPoints.length) {
       clearInterval(simInterval);
       isSimulating = false;
-      simBtn.textContent = "▶";
+      simBtn.innerHTML = '<svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: #ffffff; stroke: none; margin-left: 2px;"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
       document.getElementById("status-text").textContent = "Toolpath simulation finished.";
       return;
     }
@@ -2287,11 +2502,11 @@ async function viewGCode() {
         const badge = document.getElementById("verify-status-badge");
         badge.className = `verify-badge ${rep.status.toLowerCase()}`;
         if (rep.status === "PASS") {
-          badge.textContent = `✅ VERIFIED: READY TO RUN (${rep.cutting_blocks} CUT BLOCKS)`;
+          badge.textContent = `VERIFIED: READY TO RUN (${rep.cutting_blocks} CUT BLOCKS)`;
         } else if (rep.status === "WARNING") {
-          badge.textContent = `⚠️ READY WITH ${rep.warnings.length} NOTICE(S)`;
+          badge.textContent = `READY WITH ${rep.warnings.length} NOTICE(S)`;
         } else {
-          badge.textContent = `❌ ERROR: ${rep.errors[0] || "COLLISION DETECTED"}`;
+          badge.textContent = `ERROR: ${rep.errors[0] || "COLLISION DETECTED"}`;
         }
 
         const b = rep.bounds;
@@ -2315,7 +2530,7 @@ function copyGCodeToClipboard() {
   navigator.clipboard.writeText(text).then(() => {
     if (btn) {
       const origText = btn.textContent;
-      btn.textContent = "✓ Copied!";
+      btn.textContent = "Copied!";
       btn.style.color = "#34d399";
       btn.style.borderColor = "#059669";
       setTimeout(() => {
@@ -2354,11 +2569,26 @@ function setCameraView(view) {
   const dist = Math.max(160, span * 0.7);
 
   if (view === "top") {
+    camera.up.set(0, 1, 0);
     camera.position.set(cx, cy, cz + dist * 1.3);
   } else if (view === "front") {
+    camera.up.set(0, 0, 1);
     camera.position.set(cx, cy - dist * 1.3, cz + dist * 0.25);
   } else if (view === "iso") {
+    camera.up.set(0, 0, 1);
     camera.position.set(cx + dist * 0.7, cy - dist * 0.9, cz + dist * 0.7);
+  }
+
+  camera.lookAt(controls.target);
+  controls.update();
+
+  // Update active pill state on camera view buttons
+  document.querySelectorAll(".views-control-capsule .btn-view-pill").forEach(btn => {
+    btn.classList.remove("active");
+  });
+  const activeBtn = document.getElementById(`btn-view-${view}`);
+  if (activeBtn) {
+    activeBtn.classList.add("active");
   }
 }
 
@@ -2404,9 +2634,15 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Auto Mode actions
   const btnAutoMode = document.getElementById("btn-auto-mode");
-  if (btnAutoMode) btnAutoMode.addEventListener("click", runAutoMode);
+  if (btnAutoMode) {
+    btnAutoMode.addEventListener("click", () => switchStudioTab("tab-auto-optimizer"));
+  }
   const btnTriggerAuto = document.getElementById("btn-trigger-auto-mode");
   if (btnTriggerAuto) btnTriggerAuto.addEventListener("click", runAutoMode);
+  const btnGotoOpt = document.getElementById("btn-goto-optimizer-tab");
+  if (btnGotoOpt) {
+    btnGotoOpt.addEventListener("click", () => switchStudioTab("tab-auto-optimizer"));
+  }
 
   // Tool selection updates 3D tool model
   const toolSelect = document.getElementById("tool-select");
@@ -2427,6 +2663,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Setup Auto-Machining Optimizer Studio
   setupAutoOptimizerStudio();
+
+  // Setup Resizable Sidebar & Collapse/Expand Splitter
+  setupSidebarResizer();
+
+  // Setup Apple Liquid Glass Segmented Controls & Theme Switcher
+  setupStudioGlassSlider();
+  setupThemeSwitching();
 });
 
 // Setup accordion collapsible panels for polished, decluttered sidebar
@@ -2438,6 +2681,137 @@ function setupCollapsiblePanels() {
         panel.classList.toggle("collapsed");
       }
     });
+  });
+}
+
+// Sidebar Resizer & 1-Click Collapse/Expand Controller (Creality / OrcaSlicer Style)
+function setupSidebarResizer() {
+  const resizer = document.getElementById("sidebar-resizer");
+  const toggleBtn = document.getElementById("btn-toggle-sidebar");
+  const arrow = document.getElementById("resizer-arrow");
+  const sidebars = [
+    document.getElementById("sidebar-manual-cam"),
+    document.getElementById("sidebar-auto-optimizer")
+  ].filter(Boolean);
+
+  if (!resizer || sidebars.length === 0) return;
+
+  const MIN_WIDTH = 260;
+  const MAX_WIDTH = 680;
+  const DEFAULT_WIDTH = 340;
+
+  let currentWidth = parseInt(localStorage.getItem("cnc_slicer_sidebar_width"), 10) || DEFAULT_WIDTH;
+  let isCollapsed = localStorage.getItem("cnc_slicer_sidebar_collapsed") === "true";
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  function applySidebarWidth(w, save = true) {
+    currentWidth = Math.max(MIN_WIDTH, Math.min(w, MAX_WIDTH));
+    document.documentElement.style.setProperty("--sidebar-width", `${currentWidth}px`);
+    sidebars.forEach((sb) => {
+      sb.style.width = `${currentWidth}px`;
+    });
+    if (save) {
+      localStorage.setItem("cnc_slicer_sidebar_width", currentWidth);
+    }
+  }
+
+  function setCollapsedState(collapsed, save = true) {
+    isCollapsed = collapsed;
+    sidebars.forEach((sb) => {
+      sb.classList.toggle("sidebar-collapsed", isCollapsed);
+    });
+    if (resizer) {
+      resizer.classList.toggle("is-collapsed", isCollapsed);
+    }
+    if (arrow) {
+      // Right-side inspector: when collapsed, arrow points left (◀) to expand.
+      // When expanded, arrow points right (▶) to collapse into right margin.
+      arrow.textContent = isCollapsed ? "◀" : "▶";
+    }
+    if (toggleBtn) {
+      toggleBtn.title = isCollapsed
+        ? "Expand Settings Inspector (Ctrl+B)"
+        : "Collapse Settings Inspector (Ctrl+B)";
+    }
+    if (save) {
+      localStorage.setItem("cnc_slicer_sidebar_collapsed", isCollapsed ? "true" : "false");
+    }
+    onWindowResize();
+  }
+
+  // Initialize width and collapsed state from saved settings
+  applySidebarWidth(currentWidth, false);
+  if (isCollapsed) {
+    setCollapsedState(true, false);
+  }
+
+  // 1-Click Collapse / Expand Toggle
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setCollapsedState(!isCollapsed);
+    });
+  }
+
+  // Double-click splitter to reset to default width
+  resizer.addEventListener("dblclick", () => {
+    if (isCollapsed) {
+      setCollapsedState(false);
+    }
+    applySidebarWidth(DEFAULT_WIDTH);
+    onWindowResize();
+  });
+
+  // Mouse Drag Resizing Logic (Right-docked inspector: moving mouse LEFT increases width)
+  resizer.addEventListener("mousedown", (e) => {
+    if (e.target.closest("#btn-toggle-sidebar")) return;
+
+    isDragging = true;
+    startX = e.clientX;
+    const activeSidebar = sidebars.find((sb) => sb.style.display !== "none") || sidebars[0];
+    startWidth = isCollapsed ? 0 : (activeSidebar.offsetWidth || currentWidth);
+
+    document.body.classList.add("is-resizing");
+    resizer.classList.add("active");
+
+    const onMouseMove = (moveEvt) => {
+      if (!isDragging) return;
+      const deltaX = moveEvt.clientX - startX;
+      // Dragging left (negative deltaX) increases right sidebar width:
+      const targetWidth = startWidth - deltaX;
+
+      if (targetWidth < 140) {
+        if (!isCollapsed) setCollapsedState(true);
+      } else {
+        if (isCollapsed) setCollapsedState(false);
+        applySidebarWidth(targetWidth);
+        onWindowResize();
+      }
+    };
+
+    const onMouseUp = () => {
+      if (isDragging) {
+        isDragging = false;
+        document.body.classList.remove("is-resizing");
+        resizer.classList.remove("active");
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+        onWindowResize();
+      }
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
+
+  // Keyboard Shortcut: Ctrl+B to toggle sidebar collapse/expand
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) {
+      e.preventDefault();
+      setCollapsedState(!isCollapsed);
+    }
   });
 }
 
@@ -2508,26 +2882,33 @@ function setupAutoOptimizerStudio() {
   if (btnApply) btnApply.addEventListener("click", applyOptimizerToolpath);
 }
 
-// Switch between Manual CAM Studio and Auto-Machining Optimizer
+// Switch between Manual CAM Studio and Auto-Machining Optimizer with Apple Liquid Glass Slider
 function switchStudioTab(tabId) {
   const tabManual = document.getElementById("tab-btn-manual");
   const tabAuto = document.getElementById("tab-btn-auto-optimizer");
   const sideManual = document.getElementById("sidebar-manual-cam");
   const sideAuto = document.getElementById("sidebar-auto-optimizer");
 
+  let activeBtn = tabManual;
   if (tabId === "tab-auto-optimizer") {
     if (tabManual) tabManual.classList.remove("active");
     if (tabAuto) tabAuto.classList.add("active");
     if (sideManual) sideManual.style.display = "none";
     if (sideAuto) sideAuto.style.display = "flex";
-
+    activeBtn = tabAuto;
     runOptimizerAnalysis();
   } else {
     if (tabAuto) tabAuto.classList.remove("active");
     if (tabManual) tabManual.classList.add("active");
     if (sideAuto) sideAuto.style.display = "none";
     if (sideManual) sideManual.style.display = "flex";
+    activeBtn = tabManual;
   }
+
+  updateStudioGlassPill(activeBtn);
+
+  // Ensure Three.js viewport matches current layout
+  setTimeout(onWindowResize, 10);
 }
 
 // Update material physical properties preview
@@ -2552,7 +2933,7 @@ function updateMaterialPreview(matKey) {
 
 // Fetch and render multi-objective trade-off metrics
 async function runOptimizerAnalysis() {
-  document.getElementById("status-text").textContent = "⚡ Auto-Machining Optimizer: Calculating Pareto trade-offs across speed, tool life & finish...";
+  setStatus("Auto-Machining Optimizer: Calculating Pareto trade-offs across speed, tool life & finish...", "busy");
 
   try {
     const payload = {
@@ -2581,14 +2962,16 @@ async function runOptimizerAnalysis() {
     });
     const data = await res.json();
     if (!data.success) {
-      document.getElementById("status-text").textContent = `Optimizer: ${data.error || "Failed to analyze"}`;
+      setStatus(`Optimizer: ${data.error || "Failed to analyze"}`, "error");
       return;
     }
 
     latestOptimizerData = data;
     renderOptimizerAnalysis(data);
+    setStatus("Optimizer analysis complete. Ready to apply toolpaths.", "ready");
   } catch (err) {
     console.error("Optimizer analysis error:", err);
+    setStatus("Optimizer analysis failed.", "error");
   }
 }
 
@@ -2678,10 +3061,10 @@ async function applyOptimizerToolpath() {
   const applyBtn = document.getElementById("btn-opt-apply");
   if (applyBtn) {
     applyBtn.disabled = true;
-    applyBtn.textContent = "⚡ Optimizing & Slicing...";
+    applyBtn.textContent = "Optimizing & Slicing...";
   }
 
-  document.getElementById("status-text").textContent = "Auto-Machining Optimizer: Generating optimized multi-pass clearing and fitting G2/G3 circular arcs...";
+  setStatus("Auto-Machining Optimizer: Generating optimized multi-pass clearing and fitting G2/G3 circular arcs...", "busy");
 
   try {
     const payload = {
@@ -2719,6 +3102,7 @@ async function applyOptimizerToolpath() {
     const data = await res.json();
     if (!data.success) {
       alert("Optimization failed: " + (data.error || "Unknown error"));
+      setStatus(`Optimization failed: ${data.error || "Error"}`, "error");
       return;
     }
 
@@ -2745,7 +3129,7 @@ async function applyOptimizerToolpath() {
 
     // Update status banner
     const gs = data.gcode_stats;
-    document.getElementById("status-text").textContent = `⚡ Optimization Applied: Sliced in ${data.estimated_minutes.toFixed(1)} min. Fitted ${gs.fitted_arcs_count} G2/G3 arcs, eliminated ${gs.micro_moves_eliminated} micro-moves (${gs.reduction_pct}% G-code reduction).`;
+    setStatus(`Optimization Applied: Sliced in ${data.estimated_minutes.toFixed(1)} min. Fitted ${gs.fitted_arcs_count} G2/G3 arcs, eliminated ${gs.micro_moves_eliminated} micro-moves (${gs.reduction_pct}% G-code reduction).`, "ready");
 
     // Visual pulse on the View G-Code button
     const viewBtn = document.getElementById("btn-view-gcode");
@@ -2755,10 +3139,85 @@ async function applyOptimizerToolpath() {
     }
   } catch (err) {
     console.error("Apply optimizer failed:", err);
+    setStatus("Apply optimizer failed. Check console.", "error");
   } finally {
     if (applyBtn) {
       applyBtn.disabled = false;
-      applyBtn.innerHTML = '<span class="icon">🚀</span> Optimize & Apply Toolpath';
+      applyBtn.innerHTML = '<span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span> Optimize & Apply Toolpath';
     }
   }
+}
+
+
+// =========================================================================
+// Apple Liquid Glass Segmented Controls & Theme Switcher System
+// =========================================================================
+function updateStudioGlassPill(activeBtn) {
+  const pill = document.getElementById("studio-glass-pill");
+  if (!pill || !activeBtn) return;
+  pill.style.transform = `translate(${activeBtn.offsetLeft}px, ${activeBtn.offsetTop}px)`;
+  pill.style.width = `${activeBtn.offsetWidth}px`;
+  pill.style.height = `${activeBtn.offsetHeight}px`;
+}
+
+function setupStudioGlassSlider() {
+  const manualBtn = document.getElementById("tab-btn-manual");
+  const refresh = () => {
+    const active = document.querySelector(".studio-tab.active") || manualBtn;
+    if (active) updateStudioGlassPill(active);
+  };
+  setTimeout(refresh, 50);
+  setTimeout(refresh, 200);
+  window.addEventListener("load", refresh);
+  window.addEventListener("resize", refresh);
+}
+
+function setupThemeSwitching() {
+  const btnDark = document.getElementById("btn-theme-dark");
+  const btnLight = document.getElementById("btn-theme-light");
+  const themePill = document.getElementById("theme-glass-pill");
+
+  function updateThemePill(btn) {
+    if (!btn || !themePill) return;
+    themePill.style.transform = `translate(${btn.offsetLeft}px, ${btn.offsetTop}px)`;
+    themePill.style.width = `${btn.offsetWidth}px`;
+    themePill.style.height = `${btn.offsetHeight}px`;
+  }
+
+  function applyTheme(themeName) {
+    const isLight = themeName === "light";
+    document.body.classList.toggle("light-theme", isLight);
+    if (btnDark) btnDark.classList.toggle("active", !isLight);
+    if (btnLight) btnLight.classList.toggle("active", isLight);
+    updateThemePill(isLight ? btnLight : btnDark);
+    localStorage.setItem("cnc_slicer_theme", themeName);
+
+    // Refresh studio glass pill position
+    const activeStudioTab = document.querySelector(".studio-tab.active");
+    if (activeStudioTab) {
+      updateStudioGlassPill(activeStudioTab);
+    }
+
+    // Update Three.js scene background if initialized
+    if (typeof scene !== "undefined" && scene) {
+      scene.background = new THREE.Color(isLight ? 0xe2e8f0 : 0x080b11);
+    }
+  }
+
+  if (btnDark) {
+    btnDark.addEventListener("click", () => applyTheme("dark"));
+  }
+  if (btnLight) {
+    btnLight.addEventListener("click", () => applyTheme("light"));
+  }
+
+  const savedTheme = localStorage.getItem("cnc_slicer_theme") || "dark";
+  setTimeout(() => {
+    applyTheme(savedTheme);
+  }, 50);
+
+  window.addEventListener("resize", () => {
+    const isLight = document.body.classList.contains("light-theme");
+    updateThemePill(isLight ? btnLight : btnDark);
+  });
 }
