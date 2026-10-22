@@ -42,6 +42,7 @@ SolidCompression=yes
 WizardStyle=modern
 DisableDirPage=no
 DisableWelcomePage=no
+LicenseFile=..\LICENSE
 
 ; Architecture: 64-bit Windows
 ArchitecturesAllowed=x64compatible
