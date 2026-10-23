@@ -17,11 +17,10 @@ dist/
 .installed.cfg
 *.egg
 
-# Testing & Cache
+# Testing & Coverage
 .pytest_cache/
 .coverage
 htmlcov/
-model cache/
 
 # IDE & OS
 .vscode/
@@ -29,8 +28,4 @@ model cache/
 .DS_Store
 Thumbs.db
 *.tmp
-api keys.txt
-
-# Media / Local outputs
-outputs/
-output mp4/
+*.log
