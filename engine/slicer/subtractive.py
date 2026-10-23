@@ -59,6 +59,46 @@ def simplify_coords(coords: Sequence[tuple[float, float]], tolerance: float = 0.
     return simplified
 
 
+def reconstruct_planar_polygons(
+    raw_polys: Sequence[sg.Polygon],
+    tolerance: float = 0.01
+) -> sg.Polygon | sg.MultiPolygon:
+    """Properly reconstructs 2D planar cross-sections with interior holes and islands.
+
+    Prevents hole contours from being erased by solid unioning.
+    Uses containment hierarchy to subtract interior hole cavities from their parent boundaries.
+    """
+    if not raw_polys:
+        return sg.Polygon()
+
+    valid_polys = [p for p in raw_polys if p.is_valid and p.area > 1e-4]
+    if not valid_polys:
+        return sg.Polygon()
+
+    # Sort descending by area so enclosing outer shells are processed before their inner holes
+    sorted_polys = sorted(valid_polys, key=lambda p: p.area, reverse=True)
+
+    result_polys: list[sg.Polygon | sg.MultiPolygon] = []
+    for poly in sorted_polys:
+        pt = poly.representative_point()
+        placed = False
+        for idx, parent in enumerate(result_polys):
+            if parent.contains(pt):
+                # poly is an inner cavity / hole inside parent -> subtract it!
+                diff = parent.difference(poly)
+                if diff.is_valid and not diff.is_empty:
+                    result_polys[idx] = diff
+                placed = True
+                break
+        if not placed:
+            result_polys.append(poly)
+
+    combined = so.unary_union(result_polys) if result_polys else sg.Polygon()
+    if not combined.is_empty:
+        combined = combined.simplify(tolerance, preserve_topology=True)
+    return combined
+
+
 class SubtractiveSlicer:
     """The Subtractive Slicing Engine.
 
@@ -149,9 +189,7 @@ class SubtractiveSlicer:
                             poly = poly.simplify(self.simplification_tolerance, preserve_topology=True)
                             part_polys.append(poly)
 
-                part_union = so.unary_union(part_polys) if part_polys else sg.Polygon()
-                if not part_union.is_empty:
-                    part_union = part_union.simplify(self.simplification_tolerance, preserve_topology=True)
+                part_union = reconstruct_planar_polygons(part_polys, self.simplification_tolerance)
             else:
                 part_union = sg.Polygon()
 
@@ -379,36 +417,57 @@ class SubtractiveSlicer:
         polys = [contour] if isinstance(contour, sg.Polygon) else contour.geoms
 
         for poly in polys:
-            if poly.is_empty or len(poly.exterior.coords) < 3:
+            if poly.is_empty:
                 continue
 
-            raw_coords = list(poly.exterior.coords)
-            coords = simplify_coords(raw_coords, tolerance=tol)
-            if len(coords) < 3:
-                continue
+            # A. Exterior boundary profile pass (with optional holding tabs)
+            if len(poly.exterior.coords) >= 3:
+                raw_coords = list(poly.exterior.coords)
+                coords = simplify_coords(raw_coords, tolerance=tol)
+                if len(coords) >= 3:
+                    seg = ToolpathSegment(operation=OperationType.PROFILE, is_closed=True)
+                    start_x, start_y = coords[0]
+                    entry_z = self._apply_conformal_z(start_x, start_y, nominal_z)
 
-            seg = ToolpathSegment(operation=OperationType.PROFILE, is_closed=True)
+                    seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=self.safe_z, move_type=MoveType.RAPID, feedrate_mm_min=self.rapid_speed))
+                    seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=entry_z, move_type=MoveType.PLUNGE, feedrate_mm_min=self.tool.plunge_rate_z_mm_min))
 
-            start_x, start_y = coords[0]
-            entry_z = self._apply_conformal_z(start_x, start_y, nominal_z)
+                    total_pts = len(coords)
+                    tab_step = (total_pts // tabs_count) if tabs_count > 0 else 999999
 
-            seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=self.safe_z, move_type=MoveType.RAPID, feedrate_mm_min=self.rapid_speed))
-            seg.points.append(ToolpathPoint(x=start_x, y=start_y, z=entry_z, move_type=MoveType.PLUNGE, feedrate_mm_min=self.tool.plunge_rate_z_mm_min))
+                    for idx_pt, (x, y) in enumerate(coords[1:]):
+                        base_z = nominal_z
+                        # If on a holding tab, bridge up
+                        if tabs_count > 0 and (idx_pt % tab_step) < max(2, int(total_pts * 0.05)):
+                            base_z = min(self.stock.top_z, nominal_z + tab_height_mm)
 
-            total_pts = len(coords)
-            # If tabs requested, calculate tab indices
-            tab_step = (total_pts // tabs_count) if tabs_count > 0 else 999999
+                        pt_z = self._apply_conformal_z(x, y, base_z)
+                        seg.points.append(ToolpathPoint(x=x, y=y, z=pt_z, move_type=MoveType.CUT, feedrate_mm_min=self.tool.feedrate_xy_mm_min))
 
-            for idx_pt, (x, y) in enumerate(coords[1:]):
-                base_z = nominal_z
-                # If on a holding tab, bridge up
-                if tabs_count > 0 and (idx_pt % tab_step) < max(2, int(total_pts * 0.05)):
-                    base_z = min(self.stock.top_z, nominal_z + tab_height_mm)
+                    seg.points.append(ToolpathPoint(x=coords[-1][0], y=coords[-1][1], z=self.safe_z, move_type=MoveType.RETRACT, feedrate_mm_min=self.rapid_speed))
+                    segments.append(seg)
 
-                pt_z = self._apply_conformal_z(x, y, base_z)
-                seg.points.append(ToolpathPoint(x=x, y=y, z=pt_z, move_type=MoveType.CUT, feedrate_mm_min=self.tool.feedrate_xy_mm_min))
+            # B. Interior holes and cavity wall finish passes (no tabs needed inside holes)
+            for interior in poly.interiors:
+                if len(interior.coords) < 3:
+                    continue
+                raw_hole_coords = list(interior.coords)
+                hole_coords = simplify_coords(raw_hole_coords, tolerance=tol)
+                if len(hole_coords) < 3:
+                    continue
 
-            seg.points.append(ToolpathPoint(x=coords[-1][0], y=coords[-1][1], z=self.safe_z, move_type=MoveType.RETRACT, feedrate_mm_min=self.rapid_speed))
-            segments.append(seg)
+                hole_seg = ToolpathSegment(operation=OperationType.PROFILE, is_closed=True)
+                h_start_x, h_start_y = hole_coords[0]
+                h_entry_z = self._apply_conformal_z(h_start_x, h_start_y, nominal_z)
+
+                hole_seg.points.append(ToolpathPoint(x=h_start_x, y=h_start_y, z=self.safe_z, move_type=MoveType.RAPID, feedrate_mm_min=self.rapid_speed))
+                hole_seg.points.append(ToolpathPoint(x=h_start_x, y=h_start_y, z=h_entry_z, move_type=MoveType.PLUNGE, feedrate_mm_min=self.tool.plunge_rate_z_mm_min))
+
+                for x, y in hole_coords[1:]:
+                    pt_z = self._apply_conformal_z(x, y, nominal_z)
+                    hole_seg.points.append(ToolpathPoint(x=x, y=y, z=pt_z, move_type=MoveType.CUT, feedrate_mm_min=self.tool.feedrate_xy_mm_min))
+
+                hole_seg.points.append(ToolpathPoint(x=hole_coords[-1][0], y=hole_coords[-1][1], z=self.safe_z, move_type=MoveType.RETRACT, feedrate_mm_min=self.rapid_speed))
+                segments.append(hole_seg)
 
         return segments

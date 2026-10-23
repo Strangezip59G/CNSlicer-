@@ -412,7 +412,10 @@ def upload_stl():
                 "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
                 "silhouette_exterior": analysis.silhouette_exterior,
                 "silhouette_interiors": analysis.silhouette_interiors,
-                "feature_edges": analysis.feature_edges
+                "feature_edges": analysis.feature_edges,
+                "detected_holes": analysis.detected_holes,
+                "min_hole_diameter_mm": analysis.min_hole_diameter_mm,
+                "has_top_holes": analysis.has_top_holes
             },
             "vertices": preview_mesh.vertices.tolist(),
             "faces": preview_mesh.faces.tolist()
@@ -472,7 +475,10 @@ def sample_pyramid():
             "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
             "silhouette_exterior": analysis.silhouette_exterior,
             "silhouette_interiors": analysis.silhouette_interiors,
-            "feature_edges": analysis.feature_edges
+            "feature_edges": analysis.feature_edges,
+            "detected_holes": analysis.detected_holes,
+            "min_hole_diameter_mm": analysis.min_hole_diameter_mm,
+            "has_top_holes": analysis.has_top_holes
         },
         "vertices": mesh.vertices.tolist(),
         "faces": mesh.faces.tolist()
@@ -549,7 +555,10 @@ def layflat_model():
                 "min_cylinder_diameter_mm": analysis.min_cylinder_diameter_mm,
                 "silhouette_exterior": analysis.silhouette_exterior,
                 "silhouette_interiors": analysis.silhouette_interiors,
-                "feature_edges": analysis.feature_edges
+                "feature_edges": analysis.feature_edges,
+                "detected_holes": analysis.detected_holes,
+                "min_hole_diameter_mm": analysis.min_hole_diameter_mm,
+                "has_top_holes": analysis.has_top_holes
             },
             "vertices": preview_mesh.vertices.tolist(),
             "faces": preview_mesh.faces.tolist()
@@ -626,7 +635,10 @@ def analyze_model():
             "silhouette_exterior": analysis.silhouette_exterior,
             "silhouette_interiors": analysis.silhouette_interiors,
             "convex_hull": analysis.convex_hull,
-            "feature_edges": analysis.feature_edges
+            "feature_edges": analysis.feature_edges,
+            "detected_holes": analysis.detected_holes,
+            "min_hole_diameter_mm": analysis.min_hole_diameter_mm,
+            "has_top_holes": analysis.has_top_holes
         })
     except Exception as exc:
         return jsonify({"error": f"Design analysis failed: {exc}"}), 500

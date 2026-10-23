@@ -48,6 +48,11 @@ class DesignAnalysisResult:
     # 3D Feature edge lines for CAD/CAM wireframe highlighting
     feature_edges: list[list[list[float]]] = field(default_factory=list)
 
+    # Internal holes / pockets detected on top face or through-body
+    detected_holes: list[dict] = field(default_factory=list)
+    min_hole_diameter_mm: float = 0.0
+    has_top_holes: bool = False
+
 
 class DesignAnalyzer:
     """Analyzes 3D designs to generate precise 2D/3D outlines for stock sizing, meshing, and toolpath boundaries."""
@@ -151,6 +156,68 @@ class DesignAnalyzer:
                 for ring in poly.interiors:
                     int_coords.append([list(pt) for pt in ring.coords])
 
+        # Detect internal holes and pockets entering from top face
+        detected_holes = []
+        min_hole_dia = 0.0
+        has_top_holes = False
+
+        if h_z > 0.5:
+            test_z = max_z - min(0.5, h_z * 0.05)
+            sec_top = mesh.section(plane_origin=[0, 0, test_z], plane_normal=[0, 0, 1])
+            if sec_top is not None and len(sec_top.vertices) > 0:
+                verts_2d_top = sec_top.vertices[:, :2]
+                raw_polys_top = []
+                for entity in sec_top.entities:
+                    disc = entity.discrete(verts_2d_top)
+                    if len(disc) >= 3:
+                        p = sg.Polygon(disc)
+                        if p.is_valid and p.area > 0.01:
+                            raw_polys_top.append(p)
+
+                if raw_polys_top:
+                    sorted_top = sorted(raw_polys_top, key=lambda p: p.area, reverse=True)
+                    reconstructed = []
+                    for poly in sorted_top:
+                        pt = poly.representative_point()
+                        placed = False
+                        for idx_p, parent in enumerate(reconstructed):
+                            if parent.contains(pt):
+                                diff = parent.difference(poly)
+                                if diff.is_valid and not diff.is_empty:
+                                    reconstructed[idx_p] = diff
+                                placed = True
+                                break
+                        if not placed:
+                            reconstructed.append(poly)
+
+                    top_combined = so.unary_union(reconstructed)
+                    hole_rings = []
+                    if isinstance(top_combined, sg.Polygon):
+                        hole_rings.extend(top_combined.interiors)
+                    elif isinstance(top_combined, sg.MultiPolygon):
+                        for g in top_combined.geoms:
+                            hole_rings.extend(g.interiors)
+
+                    hole_diameters = []
+                    for ring in hole_rings:
+                        hole_poly = sg.Polygon(ring)
+                        dia = round(2.0 * np.sqrt(hole_poly.area / np.pi), 2)
+                        hole_diameters.append(dia)
+                        detected_holes.append({
+                            "center_x": round(float(hole_poly.centroid.x), 2),
+                            "center_y": round(float(hole_poly.centroid.y), 2),
+                            "diameter_mm": float(dia),
+                            "area_mm2": round(float(hole_poly.area), 2)
+                        })
+                        # Add hole rings to int_coords if not already present
+                        ring_coords = [list(pt) for pt in ring.coords]
+                        if ring_coords not in int_coords:
+                            int_coords.append(ring_coords)
+
+                    if hole_diameters:
+                        has_top_holes = True
+                        min_hole_dia = float(min(hole_diameters))
+
         # Convex hull outline
         hull = silhouette_poly.convex_hull
         hull_coords = [list(pt) for pt in hull.exterior.coords] if isinstance(hull, sg.Polygon) else []
@@ -188,7 +255,10 @@ class DesignAnalyzer:
             silhouette_exterior=ext_coords,
             silhouette_interiors=int_coords,
             convex_hull=hull_coords,
-            feature_edges=feature_lines
+            feature_edges=feature_lines,
+            detected_holes=detected_holes,
+            min_hole_diameter_mm=min_hole_dia,
+            has_top_holes=has_top_holes
         )
 
     def extract_silhouette(self, mesh: trimesh.Trimesh) -> sg.Polygon | sg.MultiPolygon:

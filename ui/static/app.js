@@ -1491,7 +1491,8 @@ function display3DMesh(vertices, faces, metadata, analysis = null) {
   const mat = new THREE.MeshStandardMaterial({
     color: 0xf59e0b, // Amber gold part
     roughness: 0.35,
-    metalness: 0.65
+    metalness: 0.65,
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geometry, mat);
@@ -1896,7 +1897,8 @@ function applyAnalysisResult(data, autoSetStock = false) {
   document.getElementById("analysis-footprint").textContent = `${data.footprint_area_mm2.toFixed(0)} mm²`;
   document.getElementById("analysis-volume").textContent = `${data.volume_cm3.toFixed(1)} cm³`;
   document.getElementById("analysis-cyl-dia").textContent = `Ø${data.min_cylinder_diameter_mm.toFixed(1)} mm`;
-  document.getElementById("analysis-feature-count").textContent = `${data.feature_edges.length} edges`;
+  const holeTag = (data.detected_holes && data.detected_holes.length > 0) ? ` • ${data.detected_holes.length} hole(s) (Ø${data.min_hole_diameter_mm}mm)` : "";
+  document.getElementById("analysis-feature-count").textContent = `${data.feature_edges.length} edges${holeTag}`;
 
   // Auto-adapt stock shape & dimensions if autoSetStock is requested
   if (autoSetStock && data.detected_shape) {

@@ -108,6 +108,14 @@ class AutoPilot:
                 tool_dia = 6.35
                 reasons.append('Selected 1/4" (6.35mm) Endmill for rigid, balanced pocket clearing.')
 
+        # Ensure tool fits into any detected internal holes or top cavities
+        min_hole_dia = getattr(analysis, "min_hole_diameter_mm", 0.0)
+        if min_hole_dia > 0 and tool_dia >= min_hole_dia:
+            tool_key = "flat_1_8"
+            tool_name = '1/8" (3.175mm) Flat Endmill'
+            tool_dia = 3.175
+            reasons.append(f"Downsized to 1/8\" (3.175mm) Endmill to fit inside detected {min_hole_dia:.1f}mm internal holes.")
+
         # ---------------------------------------------------------------------
         # 2. Optimal Machining Strategy (Pocket Clearing Pattern)
         # ---------------------------------------------------------------------
