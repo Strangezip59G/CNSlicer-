@@ -12,6 +12,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
+import cv2
 import numpy as np
 import shapely.geometry as sg
 import trimesh
@@ -29,6 +30,10 @@ from engine.gcode.validator import GCodeValidator
 from engine.optimizer.material_database import MATERIALS, get_material
 from engine.optimizer.machining_optimizer import MachiningOptimizer
 from engine.optimizer.gcode_optimizer import GCodeOptimizer
+from engine.slicer.vector_cam import (
+    VectorOpMode, HoldingTabsConfig, VectorEntity, VectorProject,
+    SVGParser, DXFParser, RasterTracer, VectorCAMGenerator
+)
 
 # Resolve UI directory robustly across source code, onefile bundles, and onedir layouts
 def _find_ui_dir() -> Path:
@@ -58,6 +63,9 @@ latest_optimizer_report: dict | None = None
 current_loaded_mesh: trimesh.Trimesh | None = None
 current_mesh_metadata: dict = {}
 active_machine: CNCProfile = STANDARD_CNC_MACHINES["genmitsu_3018"]
+current_vector_project: VectorProject | None = None
+current_raw_vector_bytes: bytes | None = None
+current_raw_vector_ext: str | None = None
 
 
 @app.after_request
@@ -983,6 +991,289 @@ def download_gcode():
         as_attachment=True,
         download_name=f"{active_machine.id}_job.gcode"
     )
+
+
+# =====================================================================
+# 2D Vector CAM & Vectorization Endpoints (Beta Mode)
+# =====================================================================
+
+@app.post("/api/vector/upload")
+def upload_vector():
+    """Upload a vector file (.svg, .dxf) or raster image (.png, .jpg, .bmp) for 2D CAM & Vectorization."""
+    global current_vector_project, current_raw_vector_bytes, current_raw_vector_ext
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"error": "Empty filename."}), 400
+
+    filename = f.filename.lower()
+    data_bytes = f.read()
+    current_raw_vector_bytes = data_bytes
+
+    try:
+        if filename.endswith(".svg"):
+            current_raw_vector_ext = "svg"
+            svg_text = data_bytes.decode("utf-8", errors="ignore")
+            project = SVGParser.parse_svg_string(svg_text)
+            project.source_filename = f.filename
+        elif filename.endswith(".dxf"):
+            current_raw_vector_ext = "dxf"
+            dxf_text = data_bytes.decode("utf-8", errors="ignore")
+            project = DXFParser.parse_dxf_text(dxf_text)
+            project.source_filename = f.filename
+        elif any(filename.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".bmp", ".webp"]):
+            current_raw_vector_ext = "image"
+            target_w = min(120.0, active_machine.bed_width_x * 0.6)
+            project = RasterTracer.trace_image_bytes(data_bytes, target_width_mm=target_w)
+            project.source_filename = f.filename
+        else:
+            return jsonify({"error": "Unsupported file format. Please upload .SVG, .DXF, or .PNG/.JPG"}), 400
+
+        bed_cx = active_machine.bed_width_x / 2.0
+        bed_cy = active_machine.bed_length_y / 2.0
+        project.center_at(bed_cx, bed_cy)
+
+        current_vector_project = project
+        return jsonify({
+            "success": True,
+            "project": project.to_dict()
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse vector file: {str(e)}"}), 500
+
+
+@app.post("/api/vector/sample")
+def load_sample_vector():
+    """Load built-in vector samples (CNSlicer emblem logo, precision spur gear, or hand sketch)."""
+    global current_vector_project, current_raw_vector_bytes, current_raw_vector_ext
+    data = request.get_json(force=True) or {}
+    sample_type = data.get("sample_type", "logo")
+
+    bed_cx = active_machine.bed_width_x / 2.0
+    bed_cy = active_machine.bed_length_y / 2.0
+
+    if sample_type == "gear":
+        teeth = 12
+        r_outer = 35.0
+        r_root = 26.0
+        r_bore = 8.0
+        pts = []
+        for i in range(teeth):
+            a0 = (i / teeth) * 2 * np.pi
+            a1 = ((i + 0.3) / teeth) * 2 * np.pi
+            a2 = ((i + 0.5) / teeth) * 2 * np.pi
+            a3 = ((i + 0.8) / teeth) * 2 * np.pi
+            pts.append(f"{50.0 + r_outer * np.cos(a0):.2f},{50.0 + r_outer * np.sin(a0):.2f}")
+            pts.append(f"{50.0 + r_outer * np.cos(a1):.2f},{50.0 + r_outer * np.sin(a1):.2f}")
+            pts.append(f"{50.0 + r_root * np.cos(a2):.2f},{50.0 + r_root * np.sin(a2):.2f}")
+            pts.append(f"{50.0 + r_root * np.cos(a3):.2f},{50.0 + r_root * np.sin(a3):.2f}")
+
+        spoke_holes = ""
+        for s in range(4):
+            ang = (s / 4.0) * 2 * np.pi + (np.pi / 4.0)
+            sx = 50.0 + 18.0 * np.cos(ang)
+            sy = 50.0 + 18.0 * np.sin(ang)
+            spoke_holes += f'<circle cx="{sx:.2f}" cy="{sy:.2f}" r="4.0" />'
+
+        svg_text = f"""<svg width="100mm" height="100mm" viewBox="0 0 100 100">
+            <polygon points="{' '.join(pts)}" fill="none" stroke="black" />
+            <circle cx="50" cy="50" r="{r_bore}" />
+            {spoke_holes}
+        </svg>"""
+        project = SVGParser.parse_svg_string(svg_text)
+        project.source_filename = "sample_spur_gear.svg"
+
+    elif sample_type == "sketch":
+        img = np.ones((240, 240, 3), dtype=np.uint8) * 255
+        cv2.rectangle(img, (40, 40), (200, 100), (0, 0, 0), -1)
+        cv2.circle(img, (70, 70), 18, (255, 255, 255), -1)
+        cv2.circle(img, (170, 70), 18, (255, 255, 255), -1)
+        cv2.rectangle(img, (80, 100), (160, 180), (0, 0, 0), -1)
+        cv2.circle(img, (120, 140), 14, (255, 255, 255), -1)
+
+        _, buf = cv2.imencode(".png", img)
+        current_raw_vector_bytes = buf.tobytes()
+        current_raw_vector_ext = "image"
+        project = RasterTracer.trace_image_bytes(current_raw_vector_bytes, target_width_mm=75.0)
+        project.source_filename = "sample_flange_sketch.png"
+
+    else:
+        svg_text = """<svg width="80mm" height="80mm" viewBox="0 0 80 80">
+            <polygon points="40,5 75,22 75,58 40,75 5,58 5,22" fill="none" stroke="black" />
+            <circle cx="40" cy="40" r="18" />
+            <path d="M 40,28 L 46,35 L 43,35 L 43,52 L 37,52 L 37,35 L 34,35 Z" />
+            <circle cx="40" cy="40" r="6" />
+        </svg>"""
+        project = SVGParser.parse_svg_string(svg_text)
+        project.source_filename = "cnslicer_shield_logo.svg"
+
+    project.center_at(bed_cx, bed_cy)
+    current_vector_project = project
+
+    return jsonify({
+        "success": True,
+        "project": project.to_dict()
+    })
+
+
+@app.post("/api/vector/trace_image")
+def trace_vector_image():
+    """Adjust image vectorization parameters (threshold, invert, denoise, detail, width)."""
+    global current_vector_project, current_raw_vector_bytes
+    if not current_raw_vector_bytes:
+        return jsonify({"error": "No image loaded to re-trace. Please upload an image first."}), 400
+
+    data = request.get_json(force=True) or {}
+    use_otsu = bool(data.get("use_otsu", True))
+    threshold_val = int(data.get("threshold", 128))
+    invert = bool(data.get("invert", False))
+    denoise = int(data.get("denoise", 3))
+    approx_eps = float(data.get("approx_epsilon", 1.0))
+    min_area = float(data.get("min_area_px", 40.0))
+    target_w = float(data.get("target_width_mm", 80.0))
+
+    try:
+        project = RasterTracer.trace_image_bytes(
+            image_bytes=current_raw_vector_bytes,
+            threshold_val=threshold_val,
+            use_otsu=use_otsu,
+            invert=invert,
+            denoise=denoise,
+            approx_epsilon=approx_eps,
+            min_area_px=min_area,
+            target_width_mm=target_w
+        )
+        bed_cx = active_machine.bed_width_x / 2.0
+        bed_cy = active_machine.bed_length_y / 2.0
+        project.center_at(bed_cx, bed_cy)
+        current_vector_project = project
+
+        return jsonify({
+            "success": True,
+            "project": project.to_dict()
+        })
+    except Exception as e:
+        return jsonify({"error": f"Tracing failed: {str(e)}"}), 500
+
+
+@app.post("/api/vector/transform")
+def transform_vector():
+    """Translate or scale the active vector project on the machine spoilboard."""
+    global current_vector_project
+    if not current_vector_project:
+        return jsonify({"error": "No vector project loaded."}), 400
+
+    data = request.get_json(force=True) or {}
+    if "center_x" in data and "center_y" in data:
+        current_vector_project.center_at(float(data["center_x"]), float(data["center_y"]))
+    if "target_width" in data and "target_height" in data:
+        current_vector_project.scale_to_dimensions(
+            float(data["target_width"]),
+            float(data["target_height"]),
+            keep_aspect=bool(data.get("keep_aspect", True))
+        )
+
+    return jsonify({
+        "success": True,
+        "project": current_vector_project.to_dict()
+    })
+
+
+@app.post("/api/vector/slice")
+def slice_vector():
+    """Generate multi-pass CNC toolpaths from vector entities."""
+    global latest_slicing_result, latest_stock, latest_optimized_gcode, current_vector_project
+    latest_optimized_gcode = None
+
+    if not current_vector_project or not current_vector_project.entities:
+        return jsonify({"error": "No vector geometry to machine. Please import or trace a vector first."}), 400
+
+    data = request.get_json(force=True) or {}
+    op_str = data.get("operation", "profile_outside").lower()
+    op_map = {
+        "engrave": VectorOpMode.ENGRAVE,
+        "profile_outside": VectorOpMode.PROFILE_OUTSIDE,
+        "profile_inside": VectorOpMode.PROFILE_INSIDE,
+        "pocket": VectorOpMode.POCKET,
+        "v_carve": VectorOpMode.V_CARVE
+    }
+    operation = op_map.get(op_str, VectorOpMode.PROFILE_OUTSIDE)
+
+    tool_d = float(data.get("tool_diameter", 3.175))
+    stepdown = float(data.get("stepdown", 1.0))
+    stepover = float(data.get("stepover", 0.45))
+    target_depth = float(data.get("target_depth", 3.0))
+    feed_xy = float(data.get("feed_xy", 1200.0))
+    feed_z = float(data.get("feed_z", 300.0))
+    safe_z = float(data.get("safe_z", 5.0))
+
+    tabs_enabled = bool(data.get("tabs_enabled", False))
+    tab_count = int(data.get("tab_count", 4))
+    tab_width = float(data.get("tab_width", 4.0))
+    tab_height = float(data.get("tab_height", 1.5))
+    tabs = HoldingTabsConfig(
+        enabled=tabs_enabled, count=tab_count, width_mm=tab_width, height_mm=tab_height
+    )
+
+    tool = CuttingTool(
+        tool_id=1,
+        name=f"{tool_d:.3f}mm Endmill",
+        tool_type=ToolType.FLAT_ENDMILL,
+        diameter_mm=tool_d,
+        stepdown_mm=stepdown,
+        stepover_fraction=stepover,
+        feedrate_xy_mm_min=feed_xy,
+        plunge_rate_z_mm_min=feed_z
+    )
+
+    result = VectorCAMGenerator.generate_toolpaths(
+        project=current_vector_project,
+        operation=operation,
+        tool=tool,
+        target_depth_mm=target_depth,
+        stepdown_mm=stepdown,
+        safe_z=safe_z,
+        tabs=tabs,
+        feed_xy=feed_xy,
+        feed_z=feed_z
+    )
+
+    latest_slicing_result = result
+    b = current_vector_project.bounds
+    stock_w = max(b[2] - b[0] + 20.0, 50.0)
+    stock_l = max(b[3] - b[1] + 20.0, 50.0)
+    stock_t = target_depth + 4.0
+    latest_stock = StockBlock(width_x=stock_w, length_y=stock_l, thickness_z=stock_t)
+
+    layers_data = []
+    for lyr in result.layers:
+        segs_data = []
+        for seg in lyr.segments:
+            pts_data = [
+                {"x": pt.x, "y": pt.y, "z": pt.z, "move_type": pt.move_type.value}
+                for pt in seg.points
+            ]
+            segs_data.append({
+                "operation": seg.operation.value,
+                "is_closed": seg.is_closed,
+                "points": pts_data
+            })
+        layers_data.append({
+            "layer_index": lyr.layer_index,
+            "nominal_z": lyr.nominal_z,
+            "segments": segs_data
+        })
+
+    return jsonify({
+        "success": True,
+        "layer_count": result.layer_count,
+        "cut_distance_mm": result.total_cut_length_mm,
+        "rapid_distance_mm": result.total_rapid_length_mm,
+        "estimated_minutes": result.estimated_time_minutes,
+        "layers": layers_data
+    })
 
 
 if __name__ == "__main__":

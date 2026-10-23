@@ -3500,3 +3500,173 @@ body.light-theme select.select-sim-speed option {
   background: #ffffff;
   color: #0f172a;
 }
+
+
+/* ==========================================================================
+   2D Vector CAM & Image-to-Vector Studio Styles (Beta Mode)
+   ========================================================================== */
+
+.badge-beta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.3) 0%, rgba(99, 102, 241, 0.4) 100%);
+  color: #d8b4fe;
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  margin-left: 4px;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.3);
+}
+
+body.light-theme .badge-beta-pill {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(99, 102, 241, 0.2) 100%);
+  color: #7e22ce;
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+.studio-tab#tab-btn-vector-cam.active {
+  color: #c084fc !important;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(99, 102, 241, 0.28) 100%) !important;
+}
+
+body.light-theme .studio-tab#tab-btn-vector-cam.active {
+  color: #7e22ce !important;
+  background: rgba(168, 85, 247, 0.15) !important;
+}
+
+/* Vector Hero Banner */
+.vector-hero {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%) !important;
+  border: 1px solid rgba(168, 85, 247, 0.3) !important;
+  padding: 12px 14px !important;
+  border-radius: 10px !important;
+  margin-bottom: 12px !important;
+}
+
+body.light-theme .vector-hero {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%) !important;
+  border-color: rgba(168, 85, 247, 0.25) !important;
+}
+
+.vector-hero-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.vector-hero-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #e9d5ff;
+}
+
+body.light-theme .vector-hero-title {
+  color: #581c87;
+}
+
+.vector-hero-title .svg-icon {
+  width: 16px;
+  height: 16px;
+  stroke: #c084fc;
+}
+
+.vector-hero-subtitle {
+  font-size: 11px;
+  color: #a855f7;
+  margin: 0;
+  line-height: 1.4;
+}
+
+body.light-theme .vector-hero-subtitle {
+  color: #6b21a8;
+}
+
+/* Vector Drop Area */
+.vector-drop-area {
+  padding: 12px !important;
+  border: 1.5px dashed rgba(168, 85, 247, 0.4) !important;
+  border-radius: 8px !important;
+  background: rgba(168, 85, 247, 0.04) !important;
+  transition: all 0.2s ease !important;
+}
+
+.vector-drop-area:hover,
+.vector-drop-area.dragover {
+  border-color: #c084fc !important;
+  background: rgba(168, 85, 247, 0.1) !important;
+}
+
+body.light-theme .vector-drop-area {
+  background: rgba(168, 85, 247, 0.03) !important;
+  border-color: rgba(168, 85, 247, 0.3) !important;
+}
+
+/* Operation Mode Selector Pills (2x2 grid) */
+.vector-op-pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.btn-op-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.btn-op-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-op-pill.active {
+  background: rgba(168, 85, 247, 0.16);
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
+}
+
+body.light-theme .btn-op-pill {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #64748b;
+}
+
+body.light-theme .btn-op-pill:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+body.light-theme .btn-op-pill.active {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: #9333ea;
+  color: #581c87;
+  box-shadow: 0 1px 3px rgba(147, 51, 234, 0.15);
+}
+
+.pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

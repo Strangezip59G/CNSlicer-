@@ -87,6 +87,10 @@
               <span class="tab-icon"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="15.5" y2="16.5"/><polyline points="9 18 15 18 18 15"/></svg></span>
               <span class="tab-label">CAM Studio</span>
             </button>
+                        <button class="studio-tab" id="tab-btn-vector-cam" data-tab="tab-vector-cam" title="2D Vector & Image-to-Vector CAM Studio (Beta)">
+              <span class="tab-icon"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="6" y1="8" x2="6" y2="16"/><line x1="18" y1="8" x2="18" y2="16"/><line x1="8" y1="18" x2="16" y2="18"/></svg></span>
+              <span class="tab-label">Vector CAM <span class="badge-beta-pill">Beta</span></span>
+            </button>
             <button class="studio-tab" id="tab-btn-auto-optimizer" data-tab="tab-auto-optimizer" title="Automatic Machining Optimizer based on physics, material, machine & geometry (Auto Mode)">
               <span class="tab-icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
               <span class="tab-label">Auto Mode</span>
@@ -949,6 +953,202 @@
           </button>
           <button id="btn-opt-apply" class="btn btn-primary btn-opt-main" title="Apply optimization, slice model, fit arcs, and update 3D toolpaths">
             <span class="icon"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span> Optimize & Apply Toolpath
+          </button>
+        </div>
+      </aside>
+
+      <!-- Right Inspector: Vector CAM & Image-to-Vector Studio (Beta Mode) -->
+      <aside class="sidebar-left sidebar-right-inspector sidebar-vector" id="sidebar-vector-cam" style="display: none;">
+        <!-- Vector Hero Banner -->
+        <div class="panel vector-hero">
+          <div class="vector-hero-head">
+            <div class="vector-hero-title">
+              <svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="6" y1="8" x2="6" y2="16"/><line x1="18" y1="8" x2="18" y2="16"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
+              <span>Vector CAM Studio</span>
+            </div>
+            <span class="badge-beta-pill">Beta</span>
+          </div>
+          <p class="vector-hero-subtitle">Direct 2D CAD/CAM from SVG, DXF, or Image-to-Vector Tracing on spoilboard.</p>
+        </div>
+
+        <!-- Section 1: Vector / Image Import -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Import Vector / Image</h3>
+          <div class="file-drop-area vector-drop-area" id="vector-drop-zone">
+            <input type="file" id="vector-file-input" accept=".svg,.dxf,.png,.jpg,.jpeg,.bmp,.webp" style="display: none;">
+            <button class="btn btn-primary" id="btn-browse-vector" style="width: 100%; justify-content: center;">
+              <svg class="svg-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Browse SVG / DXF / Image
+            </button>
+            <div class="drop-hint">Drop SVG, DXF, or PNG/JPG sketch here</div>
+          </div>
+
+          <!-- Quick Samples Row -->
+          <div style="margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+            <button class="btn-micro" id="btn-sample-logo" title="Load CNSlicer Shield Logo (SVG)">Shield Logo</button>
+            <button class="btn-micro" id="btn-sample-gear" title="Load 12-Tooth Spur Gear (SVG)">Spur Gear</button>
+            <button class="btn-micro" id="btn-sample-sketch" title="Load Hand Sketch for Raster Tracing">Image Sketch</button>
+          </div>
+
+          <!-- Interactive Image-to-Vector Tracing Controls -->
+          <div id="vector-trace-controls" style="display: none; margin-top: 10px; background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 8px; padding: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11px; font-weight: 600; color: #c084fc; text-transform: uppercase; letter-spacing: 0.5px;">Image-to-Vector Tracer</span>
+              <button id="btn-retrace" class="btn-micro" style="background: #9333ea; color: white;">Re-Trace</button>
+            </div>
+            <div class="control-row">
+              <div>
+                <label>Threshold Mode</label>
+                <select id="trace-thresh-mode">
+                  <option value="otsu" selected>Auto (Otsu)</option>
+                  <option value="manual">Manual Threshold</option>
+                </select>
+              </div>
+              <div id="trace-manual-val-wrapper" style="display: none;">
+                <label>Threshold (0–255)</label>
+                <input type="number" id="trace-thresh-val" value="128" min="1" max="254">
+              </div>
+            </div>
+            <div class="checkbox-row" style="margin: 6px 0;">
+              <label><input type="checkbox" id="trace-invert"> Invert Foreground / Background</label>
+            </div>
+            <div class="control-row">
+              <div>
+                <label>Denoise Blur</label>
+                <input type="range" id="trace-denoise" min="0" max="9" step="2" value="3">
+              </div>
+              <div>
+                <label>Vector Detail</label>
+                <input type="range" id="trace-epsilon" min="0.2" max="3.0" step="0.2" value="1.0">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Vector Geometry & Dimensions -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg> Bed Placement & Sizing</h3>
+          <div class="stats-grid" style="margin-bottom: 8px;">
+            <div class="stat-box">
+              <span class="stat-label">File</span>
+              <span class="stat-val" id="vector-stat-name" style="font-size: 11px;">No vector</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Features</span>
+              <span class="stat-val" id="vector-stat-count">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Width (X)</span>
+              <span class="stat-val" id="vector-stat-w">- mm</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Length (Y)</span>
+              <span class="stat-val" id="vector-stat-h">- mm</span>
+            </div>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Scale Width (mm)</label>
+              <input type="number" id="vector-scale-w" value="60" min="5" max="1000" step="5">
+            </div>
+            <div>
+              <label>Scale Height (mm)</label>
+              <input type="number" id="vector-scale-h" value="60" min="5" max="1000" step="5">
+            </div>
+          </div>
+          <div class="checkbox-row" style="margin-bottom: 8px;">
+            <label><input type="checkbox" id="vector-keep-aspect" checked> Lock Aspect Ratio</label>
+          </div>
+          <div class="drawer-actions">
+            <button class="btn btn-tool" id="btn-vector-center" style="width: 100%; justify-content: center;">Center on Bed</button>
+            <button class="btn btn-tool" id="btn-vector-apply-scale" style="width: 100%; justify-content: center;">Apply Size</button>
+          </div>
+        </div>
+
+        <!-- Section 3: Toolpath Machining Operation -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> Toolpath Operation</h3>
+          <div class="control-group">
+            <label>Operation Type:</label>
+            <div class="vector-op-pills" id="vector-op-selector">
+              <button class="btn-op-pill active" data-op="profile_outside">
+                <span class="pill-dot" style="background: #38bdf8;"></span> Outside Profile
+              </button>
+              <button class="btn-op-pill" data-op="profile_inside">
+                <span class="pill-dot" style="background: #f59e0b;"></span> Inside Profile
+              </button>
+              <button class="btn-op-pill" data-op="pocket">
+                <span class="pill-dot" style="background: #10b981;"></span> Pocket Clear
+              </button>
+              <button class="btn-op-pill" data-op="engrave">
+                <span class="pill-dot" style="background: #a855f7;"></span> On-Line Engrave
+              </button>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <div>
+              <label>Target Depth (mm)</label>
+              <input type="number" id="vector-target-depth" value="3.0" min="0.1" max="50.0" step="0.5">
+            </div>
+            <div>
+              <label>Pass Stepdown (mm)</label>
+              <input type="number" id="vector-stepdown" value="1.0" min="0.1" max="10.0" step="0.2">
+            </div>
+          </div>
+
+          <!-- Holding Tabs Configuration -->
+          <div class="card" style="margin-top: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 8px; border-radius: 6px;">
+            <div class="checkbox-row" style="margin-bottom: 6px;">
+              <label><input type="checkbox" id="chk-vector-tabs" checked> Holding Tabs (Keep Part Secure)</label>
+            </div>
+            <div id="vector-tabs-options" class="control-row">
+              <div>
+                <label>Tab Count</label>
+                <input type="number" id="vector-tab-count" value="4" min="2" max="16">
+              </div>
+              <div>
+                <label>Tab Width (mm)</label>
+                <input type="number" id="vector-tab-width" value="4.0" min="1.0" max="20.0" step="0.5">
+              </div>
+              <div>
+                <label>Tab Height (mm)</label>
+                <input type="number" id="vector-tab-height" value="1.5" min="0.5" max="10.0" step="0.5">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Tool Cutter & Speeds -->
+        <div class="panel">
+          <h3 class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 2v8m-3 0h6v6l-3 4-3-4v-6z"/><line x1="9" y1="6" x2="15" y2="6"/></svg> Tool & Feeds</h3>
+          <div class="control-group">
+            <label>Tool Cutter:</label>
+            <select id="vector-tool-select">
+              <option value="3.175" selected>1/8" (3.175mm) Flat Endmill</option>
+              <option value="6.35">1/4" (6.35mm) Flat Endmill</option>
+              <option value="1.5875">1/16" (1.5875mm) Micro Endmill</option>
+              <option value="1.0">1.0mm Precision PCB/Carving Mill</option>
+              <option value="0.5">0.5mm Ultra-Fine Engraver</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <div>
+              <label>Feed XY (mm/min)</label>
+              <input type="number" id="vector-feed-xy" value="1200" min="100" max="6000" step="100">
+            </div>
+            <div>
+              <label>Plunge Z (mm/min)</label>
+              <input type="number" id="vector-feed-z" value="300" min="50" max="1500" step="50">
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Toolpath Slicing Action -->
+        <div class="panel" style="margin-bottom: 24px;">
+          <button class="btn btn-primary" id="btn-vector-slice" style="width: 100%; height: 42px; font-size: 14px; font-weight: 600; justify-content: center; background: linear-gradient(135deg, #a855f7, #6366f1); border: none;">
+            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 14l8-8 8 8-8 8-8-8z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            Generate Vector Toolpaths
           </button>
         </div>
       </aside>

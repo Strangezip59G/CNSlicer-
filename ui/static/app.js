@@ -2,6 +2,9 @@
 let scene, camera, renderer, controls, transformControls;
 let bedGrid, stockMesh, partMeshGroup, toolpathLinesGroup, toolMeshGroup;
 let silhouetteOutlineGroup, featureEdgesGroup;
+let vectorLinesGroup;
+let currentVectorData = null;
+let currentVectorOperation = "profile_outside";
 let currentMesh = null;
 let currentSlicingData = null;
 let currentModelType = "sample2";
@@ -110,6 +113,8 @@ function initViewport() {
   scene.add(toolpathLinesGroup);
   scene.add(silhouetteOutlineGroup);
   scene.add(featureEdgesGroup);
+  vectorLinesGroup = new THREE.Group();
+  scene.add(vectorLinesGroup);
 
   // 3D Cutting Tool Mesh
   toolMeshGroup = createToolMesh(3.175);
@@ -2665,6 +2670,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Setup Auto-Machining Optimizer Studio
   setupAutoOptimizerStudio();
+  setupVectorCAMStudio();
 
   // Setup Resizable Sidebar & Collapse/Expand Splitter
   setupSidebarResizer();
@@ -2887,29 +2893,39 @@ function setupAutoOptimizerStudio() {
 // Switch between Manual CAM Studio and Auto-Machining Optimizer with Apple Liquid Glass Slider
 function switchStudioTab(tabId) {
   const tabManual = document.getElementById("tab-btn-manual");
+  const tabVector = document.getElementById("tab-btn-vector-cam");
   const tabAuto = document.getElementById("tab-btn-auto-optimizer");
   const sideManual = document.getElementById("sidebar-manual-cam");
+  const sideVector = document.getElementById("sidebar-vector-cam");
   const sideAuto = document.getElementById("sidebar-auto-optimizer");
 
   let activeBtn = tabManual;
+  [tabManual, tabVector, tabAuto].forEach(b => b && b.classList.remove("active"));
+  [sideManual, sideVector, sideAuto].forEach(s => s && (s.style.display = "none"));
+
   if (tabId === "tab-auto-optimizer") {
-    if (tabManual) tabManual.classList.remove("active");
     if (tabAuto) tabAuto.classList.add("active");
-    if (sideManual) sideManual.style.display = "none";
     if (sideAuto) sideAuto.style.display = "flex";
+    if (partMeshGroup) partMeshGroup.visible = true;
+    if (vectorLinesGroup) vectorLinesGroup.visible = false;
     activeBtn = tabAuto;
     runOptimizerAnalysis();
+  } else if (tabId === "tab-vector-cam") {
+    if (tabVector) tabVector.classList.add("active");
+    if (sideVector) sideVector.style.display = "flex";
+    if (partMeshGroup) partMeshGroup.visible = false;
+    if (vectorLinesGroup) vectorLinesGroup.visible = true;
+    activeBtn = tabVector;
+    onSwitchToVectorCAM();
   } else {
-    if (tabAuto) tabAuto.classList.remove("active");
     if (tabManual) tabManual.classList.add("active");
-    if (sideAuto) sideAuto.style.display = "none";
     if (sideManual) sideManual.style.display = "flex";
+    if (partMeshGroup) partMeshGroup.visible = true;
+    if (vectorLinesGroup) vectorLinesGroup.visible = false;
     activeBtn = tabManual;
   }
 
   updateStudioGlassPill(activeBtn);
-
-  // Ensure Three.js viewport matches current layout
   setTimeout(onWindowResize, 10);
 }
 
@@ -3222,4 +3238,380 @@ function setupThemeSwitching() {
     const isLight = document.body.classList.contains("light-theme");
     updateThemePill(isLight ? btnLight : btnDark);
   });
+}
+
+
+// =========================================================================
+// 2D Vector CAM & Image-to-Vector Studio System (Beta Mode)
+// =========================================================================
+
+function setupVectorCAMStudio() {
+  const tabVector = document.getElementById("tab-btn-vector-cam");
+  if (tabVector) {
+    tabVector.addEventListener("click", () => switchStudioTab("tab-vector-cam"));
+  }
+
+  // 1. Browse / File Drop
+  const fileInput = document.getElementById("vector-file-input");
+  const btnBrowse = document.getElementById("btn-browse-vector");
+  const dropZone = document.getElementById("vector-drop-zone");
+
+  if (btnBrowse && fileInput) {
+    btnBrowse.addEventListener("click", () => fileInput.click());
+  }
+  if (fileInput) {
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files[0]) {
+        uploadVectorFile(e.target.files[0]);
+      }
+    });
+  }
+  if (dropZone) {
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        uploadVectorFile(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  // 2. Quick Sample Buttons
+  const btnLogo = document.getElementById("btn-sample-logo");
+  if (btnLogo) btnLogo.addEventListener("click", () => loadVectorSample("logo"));
+  const btnGear = document.getElementById("btn-sample-gear");
+  if (btnGear) btnGear.addEventListener("click", () => loadVectorSample("gear"));
+  const btnSketch = document.getElementById("btn-sample-sketch");
+  if (btnSketch) btnSketch.addEventListener("click", () => loadVectorSample("sketch"));
+
+  // 3. Operation Mode Selector Pills
+  const opPills = document.querySelectorAll("#vector-op-selector .btn-op-pill");
+  opPills.forEach(pill => {
+    pill.addEventListener("click", () => {
+      opPills.forEach(p => p.classList.remove("active"));
+      pill.classList.add("active");
+      currentVectorOperation = pill.getAttribute("data-op") || "profile_outside";
+    });
+  });
+
+  // 4. Holding Tabs Toggle
+  const chkTabs = document.getElementById("chk-vector-tabs");
+  const tabsOptions = document.getElementById("vector-tabs-options");
+  if (chkTabs && tabsOptions) {
+    chkTabs.addEventListener("change", () => {
+      tabsOptions.style.display = chkTabs.checked ? "grid" : "none";
+    });
+  }
+
+  // 5. Image Re-Trace Controls
+  const threshMode = document.getElementById("trace-thresh-mode");
+  const threshValWrapper = document.getElementById("trace-manual-val-wrapper");
+  if (threshMode && threshValWrapper) {
+    threshMode.addEventListener("change", () => {
+      threshValWrapper.style.display = (threshMode.value === "manual") ? "block" : "none";
+    });
+  }
+  const btnRetrace = document.getElementById("btn-retrace");
+  if (btnRetrace) btnRetrace.addEventListener("click", runImageRetrace);
+
+  // 6. Placement & Sizing Actions
+  const btnCenter = document.getElementById("btn-vector-center");
+  if (btnCenter) btnCenter.addEventListener("click", centerVectorOnBed);
+  const btnApplyScale = document.getElementById("btn-vector-apply-scale");
+  if (btnApplyScale) btnApplyScale.addEventListener("click", applyVectorScale);
+
+  // 7. Generate Vector Toolpaths
+  const btnSlice = document.getElementById("btn-vector-slice");
+  if (btnSlice) btnSlice.addEventListener("click", runVectorSlicing);
+}
+
+function onSwitchToVectorCAM() {
+  if (!currentVectorData) {
+    loadVectorSample("logo");
+  } else {
+    renderVectorGeometry(currentVectorData);
+  }
+  setCameraView("top");
+
+  const optProfile = document.getElementById("opt-status-profile");
+  if (optProfile) optProfile.textContent = "Vector CAM (Beta)";
+  const optName = document.getElementById("opt-status-model-name");
+  if (optName && currentVectorData) {
+    optName.textContent = currentVectorData.source_filename || "Vector Design";
+  }
+}
+
+async function uploadVectorFile(file) {
+  if (!file) return;
+  const formData = new FormData();
+  formData.append("file", file);
+
+  setStatus(`Loading vector: ${file.name}...`, "busy");
+  try {
+    const res = await fetch("/api/vector/upload", {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || "Upload failed");
+    }
+
+    currentVectorData = data.project;
+    updateVectorUI(currentVectorData);
+    renderVectorGeometry(currentVectorData);
+
+    const isImage = (currentVectorData.source_type === "raster_trace");
+    const traceControls = document.getElementById("vector-trace-controls");
+    if (traceControls) {
+      traceControls.style.display = isImage ? "block" : "none";
+    }
+
+    setStatus(`Loaded ${file.name}: ${currentVectorData.entity_count} vector features detected.`, "ready");
+  } catch (err) {
+    console.error("Vector upload error:", err);
+    setStatus(`Vector import failed: ${err.message}`, "error");
+  }
+}
+
+async function loadVectorSample(sampleType) {
+  setStatus(`Loading ${sampleType} sample...`, "busy");
+  try {
+    const res = await fetch("/api/vector/sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sample_type: sampleType })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Failed to load sample");
+
+    currentVectorData = data.project;
+    updateVectorUI(currentVectorData);
+    renderVectorGeometry(currentVectorData);
+
+    const isImage = (sampleType === "sketch" || currentVectorData.source_type === "raster_trace");
+    const traceControls = document.getElementById("vector-trace-controls");
+    if (traceControls) {
+      traceControls.style.display = isImage ? "block" : "none";
+    }
+
+    setStatus(`Sample vector loaded: ${currentVectorData.source_filename} (${currentVectorData.entity_count} entities).`, "ready");
+  } catch (err) {
+    console.error("Sample load error:", err);
+    setStatus(`Failed to load vector sample: ${err.message}`, "error");
+  }
+}
+
+async function runImageRetrace() {
+  const btn = document.getElementById("btn-retrace");
+  if (btn) btn.disabled = true;
+  setStatus("Tracing raster image into vectors...", "busy");
+
+  try {
+    const threshMode = document.getElementById("trace-thresh-mode").value;
+    const payload = {
+      use_otsu: (threshMode === "otsu"),
+      threshold: parseInt(document.getElementById("trace-thresh-val").value),
+      invert: document.getElementById("trace-invert").checked,
+      denoise: parseInt(document.getElementById("trace-denoise").value),
+      approx_epsilon: parseFloat(document.getElementById("trace-epsilon").value),
+      target_width_mm: parseFloat(document.getElementById("vector-scale-w").value) || 80.0
+    };
+
+    const res = await fetch("/api/vector/trace_image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Re-tracing failed");
+
+    currentVectorData = data.project;
+    updateVectorUI(currentVectorData);
+    renderVectorGeometry(currentVectorData);
+    setStatus(`Image traced: ${currentVectorData.entity_count} vector features generated.`, "ready");
+  } catch (err) {
+    console.error("Retrace error:", err);
+    setStatus(`Re-trace error: ${err.message}`, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function updateVectorUI(project) {
+  if (!project) return;
+  const statName = document.getElementById("vector-stat-name");
+  if (statName) statName.textContent = project.source_filename || "Vector Design";
+  const statCount = document.getElementById("vector-stat-count");
+  if (statCount) statCount.textContent = `${project.entity_count}`;
+  const statW = document.getElementById("vector-stat-w");
+  if (statW) statW.textContent = `${project.width.toFixed(1)} mm`;
+  const statH = document.getElementById("vector-stat-h");
+  if (statH) statH.textContent = `${project.height.toFixed(1)} mm`;
+
+  const inputW = document.getElementById("vector-scale-w");
+  if (inputW) inputW.value = project.width.toFixed(1);
+  const inputH = document.getElementById("vector-scale-h");
+  if (inputH) inputH.value = project.height.toFixed(1);
+
+  const stockDim = document.getElementById("telemetry-stock-dim");
+  if (stockDim) stockDim.textContent = `${project.width.toFixed(0)}×${project.height.toFixed(0)} mm`;
+  const modelName = document.getElementById("opt-status-model-name");
+  if (modelName) modelName.textContent = project.source_filename || "Vector Job";
+}
+
+async function centerVectorOnBed() {
+  if (!currentMachine) return;
+  const cx = currentMachine.bed_width_x / 2.0;
+  const cy = currentMachine.bed_length_y / 2.0;
+
+  try {
+    const res = await fetch("/api/vector/transform", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ center_x: cx, center_y: cy })
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentVectorData = data.project;
+      updateVectorUI(currentVectorData);
+      renderVectorGeometry(currentVectorData);
+      setStatus("Vector centered on spoilboard bed.", "ready");
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function applyVectorScale() {
+  const targetW = parseFloat(document.getElementById("vector-scale-w").value);
+  const targetH = parseFloat(document.getElementById("vector-scale-h").value);
+  const keepAspect = document.getElementById("vector-keep-aspect").checked;
+
+  try {
+    const res = await fetch("/api/vector/transform", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_width: targetW, target_height: targetH, keep_aspect: keepAspect })
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentVectorData = data.project;
+      updateVectorUI(currentVectorData);
+      renderVectorGeometry(currentVectorData);
+      setStatus("Vector dimensions updated.", "ready");
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderVectorGeometry(project) {
+  if (!vectorLinesGroup) return;
+  while (vectorLinesGroup.children.length > 0) {
+    vectorLinesGroup.remove(vectorLinesGroup.children[0]);
+  }
+
+  if (!project || !project.entities) return;
+
+  const colorPalette = {
+    profile_outside: 0x38bdf8,
+    profile_inside: 0xf59e0b,
+    pocket: 0x10b981,
+    engrave: 0xa855f7
+  };
+
+  const matCache = {};
+  function getMat(hex) {
+    if (!matCache[hex]) {
+      matCache[hex] = new THREE.LineBasicMaterial({ color: hex, linewidth: 2 });
+    }
+    return matCache[hex];
+  }
+
+  project.entities.forEach(entity => {
+    const colHex = colorPalette[entity.operation] || 0xc084fc;
+    const lineMat = getMat(colHex);
+
+    function drawRings(coordsList) {
+      if (!Array.isArray(coordsList) || coordsList.length === 0) return;
+      if (typeof coordsList[0][0] === "number") {
+        const pts = coordsList.map(p => new THREE.Vector3(p[0], p[1], 0.25));
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const line = entity.is_closed ? new THREE.LineLoop(geo, lineMat) : new THREE.Line(geo, lineMat);
+        vectorLinesGroup.add(line);
+      } else {
+        coordsList.forEach(sub => drawRings(sub));
+      }
+    }
+
+    drawRings(entity.coords);
+  });
+}
+
+async function runVectorSlicing() {
+  if (!currentVectorData) {
+    setStatus("No vector loaded to machine.", "error");
+    return;
+  }
+
+  const btnSlice = document.getElementById("btn-vector-slice");
+  if (btnSlice) {
+    btnSlice.disabled = true;
+    btnSlice.innerHTML = `<span class="icon spin"><svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span> Computing Vector Toolpaths...`;
+  }
+
+  try {
+    const payload = {
+      operation: currentVectorOperation,
+      tool_diameter: parseFloat(document.getElementById("vector-tool-select").value),
+      target_depth: parseFloat(document.getElementById("vector-target-depth").value),
+      stepdown: parseFloat(document.getElementById("vector-stepdown").value),
+      feed_xy: parseFloat(document.getElementById("vector-feed-xy").value),
+      feed_z: parseFloat(document.getElementById("vector-feed-z").value),
+      safe_z: 5.0,
+      tabs_enabled: document.getElementById("chk-vector-tabs").checked,
+      tab_count: parseInt(document.getElementById("vector-tab-count").value),
+      tab_width: parseFloat(document.getElementById("vector-tab-width").value),
+      tab_height: parseFloat(document.getElementById("vector-tab-height").value)
+    };
+
+    const res = await fetch("/api/vector/slice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || "Vector slicing failed");
+    }
+
+    currentSlicingData = data;
+    renderToolpaths(data.layers);
+
+    const slider = document.getElementById("layer-slider");
+    slider.max = data.layer_count;
+    slider.value = data.layer_count;
+    document.getElementById("current-layer-label").textContent = `All (${data.layer_count})`;
+
+    document.getElementById("btn-view-gcode").disabled = false;
+    document.getElementById("btn-export-gcode").disabled = false;
+
+    document.getElementById("opt-status-time").textContent = `${data.estimated_minutes.toFixed(1)} min`;
+    setStatus(`Vector toolpaths ready: ${data.layer_count} passes (${data.cut_distance_mm.toFixed(0)}mm cut). Scrub slider or click Play to simulate.`, "ready");
+
+  } catch (err) {
+    console.error("Vector slicing error:", err);
+    setStatus(`Vector machining error: ${err.message}`, "error");
+  } finally {
+    if (btnSlice) {
+      btnSlice.disabled = false;
+      btnSlice.innerHTML = `<svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 14l8-8 8 8-8 8-8-8z"/><line x1="2" y1="12" x2="22" y2="12"/></svg> Generate Vector Toolpaths`;
+    }
+  }
 }

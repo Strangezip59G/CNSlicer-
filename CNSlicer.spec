@@ -23,6 +23,7 @@ hidden_imports = [
     'engine.slicer.subtractive',
     'engine.slicer.analyzer',
     'engine.slicer.auto_pilot',
+    'engine.slicer.vector_cam',
     'engine.slicer.machine',
     'engine.gcode',
     'engine.gcode.generator',
